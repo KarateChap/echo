@@ -93,6 +93,9 @@ export default function VoiceHome() {
   const msgRecorder = useVoiceRecorder();
   const msgStartRef = useRef<number>(0);
 
+  // Pre-warm the microphone on mount to eliminate permission popup delay during drag
+  useEffect(() => { recorder.prewarmMic(); }, []);
+
   const [ttsAudioEl, setTtsAudioEl] = useState<HTMLAudioElement | null>(null);
   const micLevel = useAudioAnalyser(recorder.stream);
   const ttsLevel = useAudioAnalyser(ttsAudioEl);

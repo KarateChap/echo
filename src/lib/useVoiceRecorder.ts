@@ -30,11 +30,31 @@ export function useVoiceRecorder() {
 
   useEffect(() => () => clearTick(), []);
 
+  const prewarmedStreamRef = useRef<MediaStream | null>(null);
+
+  // Pre-warm the microphone so there's no permission popup delay when recording starts
+  const prewarmMic = useCallback(async () => {
+    if (prewarmedStreamRef.current) return;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
+      prewarmedStreamRef.current = s;
+    } catch {
+      // Ignore — will be requested again in startRecording
+    }
+  }, []);
+
   const startRecording = useCallback(async (): Promise<void> => {
     setError(null);
     setStatus("requesting");
     try {
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Reuse prewarmed stream if available, otherwise request fresh
+      let micStream: MediaStream;
+      if (prewarmedStreamRef.current) {
+        micStream = prewarmedStreamRef.current;
+        prewarmedStreamRef.current = null;
+      } else {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
+      }
       setStream(micStream);
       const stream = micStream;
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -86,5 +106,5 @@ export function useVoiceRecorder() {
     });
   }, []);
 
-  return { status, error, elapsedMs, stream, startRecording, stopRecording };
+  return { status, error, elapsedMs, stream, startRecording, stopRecording, prewarmMic };
 }
