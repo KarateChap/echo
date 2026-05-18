@@ -12,9 +12,17 @@ export const tickScheduledRules = internalAction({
         ruleId: rule._id,
       });
 
-      // Advance nextRunAt for recurring rules so they don't re-fire next tick.
-      // One-shot rules are marked "completed" inside executePayment after success.
-      if (rule.kind === "recurring") {
+      const isFutureOneShot = rule.kind === "oneShot" && rule.schedule?.kind === "once";
+
+      if (isFutureOneShot) {
+        // Future one-shot picked up by cron — mark completed so it doesn't re-fire.
+        // (executePayment also marks it, but this prevents the cron from re-firing
+        // before executePayment finishes)
+        await ctx.runMutation(internal.rules.markCompleted, {
+          ruleId: rule._id,
+        });
+      } else if (rule.kind === "recurring") {
+        // Advance nextRunAt for recurring rules so they don't re-fire next tick.
         await ctx.runMutation(internal.rules.advanceNextRun, {
           ruleId: rule._id,
         });

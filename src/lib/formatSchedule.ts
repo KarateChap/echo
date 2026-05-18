@@ -1,6 +1,24 @@
 export function formatSchedule(schedule: { kind: string; value: string }) {
-  if (schedule.kind === "monthly") return `Monthly on the ${schedule.value}`;
+  if (schedule.kind === "monthly") {
+    if (schedule.value === "last") return "Monthly on the last day";
+    return `Monthly on the ${schedule.value}${ordinalSuffix(schedule.value)}`;
+  }
   if (schedule.kind === "weekly") return `Weekly on ${schedule.value}`;
+  if (schedule.kind === "daily") {
+    const [h, m] = (schedule.value || "09:00").split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const mStr = m ? `:${String(m).padStart(2, "0")}` : "";
+    return `Every day at ${h12}${mStr} ${ampm}`;
+  }
+  if (schedule.kind === "biweekly") return `Every other ${schedule.value}`;
+  if (schedule.kind === "once") {
+    const d = new Date(schedule.value + "T00:00:00");
+    if (!isNaN(d.getTime())) {
+      return `On ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
+    }
+    return `On ${schedule.value}`;
+  }
   // Cron — try to make it human-readable
   const parts = schedule.value.trim().split(/\s+/);
   if (parts.length === 5) {
@@ -22,7 +40,8 @@ export function formatSchedule(schedule: { kind: string; value: string }) {
       const days = dow.split(",").map((d) => dayNames[d] ?? d).join(", ");
       pieces.push(`Every ${days}`);
     } else if (dom !== "*" && dom !== "?") {
-      pieces.push(`On day ${dom} of the month`);
+      const days = dom.split(",").map((d) => `${d}${ordinalSuffix(d)}`).join(" and ");
+      pieces.push(`On the ${days} of the month`);
     } else {
       pieces.push("Every day");
     }
@@ -38,4 +57,12 @@ export function formatSchedule(schedule: { kind: string; value: string }) {
     return pieces.join(" ");
   }
   return `Custom (${schedule.value})`;
+}
+
+function ordinalSuffix(val: string): string {
+  const n = parseInt(val);
+  if (isNaN(n)) return "";
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
 }

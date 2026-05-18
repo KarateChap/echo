@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type RecorderStatus = "idle" | "requesting" | "recording" | "stopping" | "error";
 
-const SOFT_CAP_MS = 30_000;
+const SOFT_CAP_MS = 45_000;
+
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  sampleRate: 16000,
+};
 
 export function useVoiceRecorder() {
   const [status, setStatus] = useState<RecorderStatus>("idle");

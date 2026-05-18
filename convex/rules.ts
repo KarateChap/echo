@@ -8,13 +8,34 @@ function nextCronRunAt(cronExpr: string): number {
   return interval.next().toDate().getTime();
 }
 
+const DAY_NAMES: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+};
+
 function nextScheduleRunAt(schedule: { kind: string; value: string }): number {
   const now = new Date();
 
-  // Handle monthly — value is the day of month, e.g. "1" or "15"
+  // Handle monthly — value is the day of month, e.g. "1", "15", or "last"
   if (schedule.kind === "monthly") {
+    if (schedule.value === "last") {
+      // Last day of the current month; if already past, last day of next month
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      lastDay.setHours(9, 0, 0, 0);
+      if (lastDay.getTime() <= now.getTime()) {
+        const nextMonthLast = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+        nextMonthLast.setHours(9, 0, 0, 0);
+        return nextMonthLast.getTime();
+      }
+      return lastDay.getTime();
+    }
     const dayOfMonth = parseInt(schedule.value) || 1;
-    const next = new Date(now.getFullYear(), now.getMonth(), dayOfMonth);
+    const next = new Date(now.getFullYear(), now.getMonth(), dayOfMonth, 9, 0, 0, 0);
+    // If the day rolled over (e.g. Feb 30 → Mar 2), skip to next valid month
+    if (next.getDate() !== dayOfMonth) {
+      next.setMonth(next.getMonth() + 1);
+      next.setDate(dayOfMonth);
+    }
     if (next.getTime() <= now.getTime()) {
       next.setMonth(next.getMonth() + 1);
     }
@@ -23,30 +44,56 @@ function nextScheduleRunAt(schedule: { kind: string; value: string }): number {
 
   // Handle weekly — value is day name, e.g. "Monday"
   if (schedule.kind === "weekly") {
-    const dayNames: Record<string, number> = {
-      sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
-      thursday: 4, friday: 5, saturday: 6,
-    };
-    const targetDay = dayNames[schedule.value.toLowerCase()] ?? 1;
+    const targetDay = DAY_NAMES[schedule.value.toLowerCase()] ?? 1;
     const currentDay = now.getDay();
     let daysUntil = targetDay - currentDay;
     if (daysUntil <= 0) daysUntil += 7;
     const next = new Date(now);
     next.setDate(next.getDate() + daysUntil);
-    next.setHours(0, 0, 0, 0);
+    next.setHours(9, 0, 0, 0);
     return next.getTime();
+  }
+
+  // Handle daily — value is time in HH:MM format, e.g. "09:00"
+  if (schedule.kind === "daily") {
+    const [hours, minutes] = (schedule.value || "09:00").split(":").map(Number);
+    const next = new Date(now);
+    next.setHours(hours || 9, minutes || 0, 0, 0);
+    if (next.getTime() <= now.getTime()) {
+      next.setDate(next.getDate() + 1);
+    }
+    return next.getTime();
+  }
+
+  // Handle biweekly — value is day name; first run is next occurrence of that day
+  if (schedule.kind === "biweekly") {
+    const targetDay = DAY_NAMES[schedule.value.toLowerCase()] ?? 5; // default Friday
+    const currentDay = now.getDay();
+    let daysUntil = targetDay - currentDay;
+    if (daysUntil <= 0) daysUntil += 7;
+    const next = new Date(now);
+    next.setDate(next.getDate() + daysUntil);
+    next.setHours(9, 0, 0, 0);
+    return next.getTime();
+  }
+
+  // Handle once — value is ISO date "YYYY-MM-DD" for a future one-shot
+  if (schedule.kind === "once") {
+    const target = new Date(schedule.value + "T09:00:00");
+    return target.getTime();
   }
 
   // Handle cron expression with validation
   if (schedule.kind === "cron") {
     try {
       return nextCronRunAt(schedule.value);
-    } catch {
+    } catch (e) {
+      console.error("Invalid cron expression:", schedule.value, e);
       // If the cron expression is invalid, try to interpret the value as a
       // day-of-month (GPT sometimes returns kind:"cron" with just a number)
       const parsed = parseInt(schedule.value);
       if (!isNaN(parsed) && parsed >= 1 && parsed <= 31) {
-        const next = new Date(now.getFullYear(), now.getMonth(), parsed);
+        const next = new Date(now.getFullYear(), now.getMonth(), parsed, 9, 0, 0, 0);
         if (next.getTime() <= now.getTime()) {
           next.setMonth(next.getMonth() + 1);
         }
@@ -69,7 +116,10 @@ export const createFromIntent = mutation({
     amountUsdc: v.number(),
     token: v.optional(v.string()),
     schedule: v.optional(v.object({
-      kind: v.union(v.literal("monthly"), v.literal("weekly"), v.literal("cron")),
+      kind: v.union(
+        v.literal("monthly"), v.literal("weekly"), v.literal("daily"),
+        v.literal("biweekly"), v.literal("cron"), v.literal("once"),
+      ),
       value: v.string(),
     })),
     condition: v.optional(v.object({
@@ -121,10 +171,26 @@ export const createFromIntent = mutation({
       recipient = (await ctx.db.get(recipient._id))!;
     }
 
-    // Compute nextRunAt for scheduled rules (not for one-shot — those fire immediately)
+    // Compute nextRunAt and status based on kind + schedule
     let nextRunAt: number | undefined;
-    if (args.kind === "recurring" && args.schedule) {
+    let status: "pending" | "active";
+
+    const isFutureOneShot = args.kind === "oneShot" && args.schedule?.kind === "once";
+
+    if (isFutureOneShot && args.schedule) {
+      // Future-dated one-shot: let cron pick it up at the scheduled time
       nextRunAt = nextScheduleRunAt(args.schedule);
+      status = "active";
+    } else if (args.kind === "oneShot") {
+      // Immediate one-shot: fire right away
+      status = "pending";
+    } else if (args.schedule) {
+      // Recurring/conditional with schedule
+      nextRunAt = nextScheduleRunAt(args.schedule);
+      status = "active";
+    } else {
+      // Conditional without schedule, or fallback
+      status = "active";
     }
 
     const ruleId = await ctx.db.insert("rules", {
@@ -135,14 +201,12 @@ export const createFromIntent = mutation({
       token: args.token ?? "USDC",
       schedule: args.schedule,
       condition: args.condition,
-      // One-shot = "pending" (fired immediately, cron ignores it)
-      // Recurring/conditional = "active" (cron picks them up)
-      status: args.kind === "oneShot" ? "pending" : "active",
+      status,
       nextRunAt,
     });
 
-    // For one-shot rules, fire the payment immediately (don't wait for cron)
-    if (args.kind === "oneShot") {
+    // For immediate one-shot rules, fire the payment now (don't wait for cron)
+    if (args.kind === "oneShot" && !isFutureOneShot) {
       await ctx.scheduler.runAfter(0, internal.executePayment.executePayment, {
         ruleId,
       });
@@ -228,11 +292,20 @@ export const advanceNextRun = internalMutation({
   args: { ruleId: v.id("rules") },
   handler: async (ctx, { ruleId }) => {
     const rule = await ctx.db.get(ruleId);
-    if (!rule || rule.kind !== "recurring") return;
+    if (!rule) return;
 
-    const nextRunAt = rule.schedule
-      ? nextScheduleRunAt(rule.schedule)
-      : Date.now() + 24 * 60 * 60 * 1000;
+    // Future one-shots and non-recurring rules should be marked completed, not advanced
+    if (rule.kind !== "recurring") return;
+
+    let nextRunAt: number;
+    if (rule.schedule?.kind === "biweekly" && rule.nextRunAt) {
+      // Biweekly: add exactly 14 days from the last scheduled time
+      nextRunAt = rule.nextRunAt + 14 * 24 * 60 * 60 * 1000;
+    } else if (rule.schedule) {
+      nextRunAt = nextScheduleRunAt(rule.schedule);
+    } else {
+      nextRunAt = Date.now() + 24 * 60 * 60 * 1000;
+    }
 
     await ctx.db.patch(ruleId, { nextRunAt });
   },

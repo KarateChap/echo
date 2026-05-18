@@ -87,14 +87,29 @@ export const setIntent = internalMutation({
       const token = session?.selectedToken ?? parsed.token ?? "USDC";
 
       let scheduleLabel = "";
-      if (parsed.kind === "recurring" && parsed.schedule) {
+      if (parsed.schedule) {
         const s = parsed.schedule;
         if (s.kind === "monthly") {
-          scheduleLabel = `every month on the ${s.value}${["1","21","31"].includes(s.value) ? "st" : ["2","22"].includes(s.value) ? "nd" : ["3","23"].includes(s.value) ? "rd" : "th"}`;
+          if (s.value === "last") {
+            scheduleLabel = "every month on the last day";
+          } else {
+            const ord = ["1","21","31"].includes(s.value) ? "st" : ["2","22"].includes(s.value) ? "nd" : ["3","23"].includes(s.value) ? "rd" : "th";
+            scheduleLabel = `every month on the ${s.value}${ord}`;
+          }
         } else if (s.kind === "weekly") {
           scheduleLabel = `every ${s.value}`;
+        } else if (s.kind === "daily") {
+          scheduleLabel = "every day";
+        } else if (s.kind === "biweekly") {
+          scheduleLabel = `every other ${s.value}`;
+        } else if (s.kind === "once") {
+          const d = new Date(s.value + "T00:00:00");
+          if (!isNaN(d.getTime())) {
+            scheduleLabel = `on ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
+          } else {
+            scheduleLabel = `on ${s.value}`;
+          }
         } else {
-          // cron — try to describe simply
           scheduleLabel = "on the schedule you described";
         }
       }
@@ -102,6 +117,7 @@ export const setIntent = internalMutation({
       const kindLabel =
         parsed.kind === "recurring" ? scheduleLabel || "on a recurring schedule"
         : parsed.kind === "conditional" ? `whenever ${name}'s wallet drops below the threshold`
+        : scheduleLabel ? scheduleLabel  // future one-shot with "once" schedule
         : "right away";
       const sentence = `Got it. Sending ${amount} ${token} to ${name}, ${kindLabel}. Please confirm to proceed.`;
 
