@@ -1,5 +1,14 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+
+async function linkWalletToRecipients(ctx: MutationCtx, email: string, walletAddress: string) {
+  const recipients = await ctx.db.query("recipients").collect();
+  for (const r of recipients) {
+    if (r.contactEmail?.toLowerCase() === email.toLowerCase() && !r.walletAddress) {
+      await ctx.db.patch(r._id, { walletAddress });
+    }
+  }
+}
 
 export const upsertUser = mutation({
   args: {
@@ -20,15 +29,26 @@ export const upsertUser = mutation({
         email: args.email,
         displayName: args.displayName,
       });
+      // Link wallet to any recipient rows matching this email
+      if (args.email) {
+        await linkWalletToRecipients(ctx, args.email, args.walletAddress);
+      }
       return existing._id;
     }
 
-    return await ctx.db.insert("users", {
+    const userId = await ctx.db.insert("users", {
       privyId: args.privyId,
       walletAddress: args.walletAddress,
       email: args.email,
       displayName: args.displayName,
     });
+
+    // Link wallet to any recipient rows matching this email
+    if (args.email) {
+      await linkWalletToRecipients(ctx, args.email, args.walletAddress);
+    }
+
+    return userId;
   },
 });
 

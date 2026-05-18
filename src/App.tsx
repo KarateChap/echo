@@ -7,7 +7,12 @@ import Landing from "@/pages/Landing";
 import VoiceHome from "@/pages/VoiceHome";
 import Rules from "@/pages/Rules";
 import Activity from "@/pages/Activity";
+import Recipients from "@/pages/Recipients";
 import Claim from "@/pages/Claim";
+import TransactionNotifier from "@/components/TransactionNotifier";
+import ParticleWaveBackground from "@/components/ParticleWaveBackground";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { AudioLevelProvider } from "@/lib/AudioLevelContext";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { ready, authenticated, user } = usePrivy();
@@ -26,7 +31,17 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (!ready) return <div className="grid h-full place-items-center text-sm opacity-60">Loading…</div>;
   if (!authenticated) return <Navigate to="/" replace />;
-  return <>{children}</>;
+  return (
+    <ErrorBoundary>
+      <AudioLevelProvider>
+        <ParticleWaveBackground />
+        <div className="relative z-10 h-full">
+          <TransactionNotifier />
+          {children}
+        </div>
+      </AudioLevelProvider>
+    </ErrorBoundary>
+  );
 }
 
 export default function App() {
@@ -36,6 +51,7 @@ export default function App() {
       <Route path="/app" element={<RequireAuth><VoiceHome /></RequireAuth>} />
       <Route path="/app/rules" element={<RequireAuth><Rules /></RequireAuth>} />
       <Route path="/app/activity" element={<RequireAuth><Activity /></RequireAuth>} />
+      <Route path="/app/recipients" element={<RequireAuth><Recipients /></RequireAuth>} />
       <Route path="/claim/:token" element={<Claim />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

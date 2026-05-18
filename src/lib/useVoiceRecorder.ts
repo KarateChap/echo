@@ -8,6 +8,7 @@ export function useVoiceRecorder() {
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef<number>(0);
@@ -27,7 +28,9 @@ export function useVoiceRecorder() {
     setError(null);
     setStatus("requesting");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setStream(micStream);
+      const stream = micStream;
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
@@ -38,6 +41,7 @@ export function useVoiceRecorder() {
       };
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        setStream(null);
         clearTick();
         const blob = new Blob(chunksRef.current, { type: mimeType });
         chunksRef.current = [];
@@ -76,5 +80,5 @@ export function useVoiceRecorder() {
     });
   }, []);
 
-  return { status, error, elapsedMs, startRecording, stopRecording };
+  return { status, error, elapsedMs, stream, startRecording, stopRecording };
 }

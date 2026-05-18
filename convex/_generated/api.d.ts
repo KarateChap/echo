@@ -8,7 +8,20 @@
  * @module
  */
 
+import type * as claims from "../claims.js";
+import type * as crons from "../crons.js";
+import type * as customTokens from "../customTokens.js";
+import type * as executePayment from "../executePayment.js";
+import type * as notify from "../notify.js";
+import type * as parseIntent from "../parseIntent.js";
+import type * as recipients from "../recipients.js";
+import type * as rules from "../rules.js";
+import type * as scheduler from "../scheduler.js";
+import type * as synthesize from "../synthesize.js";
+import type * as transactions from "../transactions.js";
+import type * as transcribe from "../transcribe.js";
 import type * as users from "../users.js";
+import type * as voiceMessages from "../voiceMessages.js";
 import type * as voiceSessions from "../voiceSessions.js";
 
 import type {
@@ -18,7 +31,20 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  claims: typeof claims;
+  crons: typeof crons;
+  customTokens: typeof customTokens;
+  executePayment: typeof executePayment;
+  notify: typeof notify;
+  parseIntent: typeof parseIntent;
+  recipients: typeof recipients;
+  rules: typeof rules;
+  scheduler: typeof scheduler;
+  synthesize: typeof synthesize;
+  transactions: typeof transactions;
+  transcribe: typeof transcribe;
   users: typeof users;
+  voiceMessages: typeof voiceMessages;
   voiceSessions: typeof voiceSessions;
 }>;
 
