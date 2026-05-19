@@ -52,13 +52,18 @@ export default function Claim() {
   }, [ready, authenticated, user, walletAddress, upsertUser]);
 
   // Create embedded wallet only for first-time users (no wallet in DB or locally)
+  const creatingWalletRef = useRef(false);
   useEffect(() => {
     if (!ready || !authenticated || dbUser === undefined) return;
     if (dbUser?.walletAddress || localWalletAddress) return;
+    if (creatingWalletRef.current) return;
+    creatingWalletRef.current = true;
     createWallet().catch((err) => {
       console.warn("Embedded wallet creation failed:", err);
+      creatingWalletRef.current = false; // allow retry on failure
     });
-  }, [ready, authenticated, dbUser, localWalletAddress, createWallet]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, authenticated, dbUser, localWalletAddress]);
 
   const claim = useQuery(
     api.claims.getByToken,

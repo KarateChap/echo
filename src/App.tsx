@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { usePrivy, useWallets, useCreateWallet } from "@privy-io/react-auth";
 import { useMutation, useQuery } from "convex/react";
@@ -50,13 +50,18 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
   // Create embedded wallet only for first-time users (no wallet in DB or locally)
   // dbUser === undefined means still loading; dbUser === null means no record yet
+  const creatingWalletRef = useRef(false);
   useEffect(() => {
     if (!ready || !authenticated || dbUser === undefined) return;
     if (dbUser?.walletAddress || localWalletAddress) return;
+    if (creatingWalletRef.current) return;
+    creatingWalletRef.current = true;
     createWallet().catch((err) => {
       console.warn("Embedded wallet creation failed:", err);
+      creatingWalletRef.current = false; // allow retry on failure
     });
-  }, [ready, authenticated, dbUser, localWalletAddress, createWallet]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, authenticated, dbUser, localWalletAddress]);
 
   if (!ready) return <div className="grid h-full place-items-center text-sm opacity-60">Loading…</div>;
   if (!authenticated) return <Navigate to="/" replace />;
