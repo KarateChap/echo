@@ -5,7 +5,7 @@ const crons = cronJobs();
 
 crons.interval(
   "tickScheduledRules",
-  { minutes: 1 },
+  { seconds: 30 },
   internal.scheduler.tickScheduledRules,
 );
 
