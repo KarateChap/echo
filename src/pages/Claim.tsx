@@ -26,7 +26,7 @@ export default function Claim() {
   // DB user record is the source of truth for wallet address
   const dbUser = useQuery(
     api.users.getByPrivyId,
-    user?.id ? { privyId: user.id } : "skip",
+    user?.id ? { privyId: user.id, email: user.email?.address } : "skip",
   );
 
   // Resolve local Privy wallet as fallback for first-time users
@@ -51,13 +51,14 @@ export default function Claim() {
     });
   }, [ready, authenticated, user, walletAddress, upsertUser]);
 
-  // Trigger embedded wallet creation only if no wallet exists anywhere
+  // Create embedded wallet only for first-time users (no wallet in DB or locally)
   useEffect(() => {
-    if (!ready || !authenticated || walletAddress) return;
+    if (!ready || !authenticated || dbUser === undefined) return;
+    if (dbUser?.walletAddress || localWalletAddress) return;
     createWallet().catch((err) => {
       console.warn("Embedded wallet creation failed:", err);
     });
-  }, [ready, authenticated, walletAddress, createWallet]);
+  }, [ready, authenticated, dbUser, localWalletAddress, createWallet]);
 
   const claim = useQuery(
     api.claims.getByToken,

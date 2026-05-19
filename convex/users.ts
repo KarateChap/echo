@@ -18,14 +18,23 @@ export const upsertUser = mutation({
     displayName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    // Look up by privyId first, then fall back to email (Privy may assign
+    // different IDs across devices for the same email account)
+    let existing = await ctx.db
       .query("users")
       .withIndex("by_privyId", (q) => q.eq("privyId", args.privyId))
       .unique();
 
+    if (!existing && args.email) {
+      existing = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", args.email))
+        .first();
+    }
+
     if (existing) {
-      // Only overwrite walletAddress if a new one is provided
       const patch: Record<string, unknown> = {
+        privyId: args.privyId,
         email: args.email,
         displayName: args.displayName,
       };
@@ -64,11 +73,21 @@ export const getInternal = internalQuery({
 });
 
 export const getByPrivyId = query({
-  args: { privyId: v.string() },
-  handler: async (ctx, { privyId }) => {
-    return await ctx.db
+  args: { privyId: v.string(), email: v.optional(v.string()) },
+  handler: async (ctx, { privyId, email }) => {
+    const byPrivy = await ctx.db
       .query("users")
       .withIndex("by_privyId", (q) => q.eq("privyId", privyId))
       .unique();
+    if (byPrivy) return byPrivy;
+
+    // Fallback: Privy may assign different IDs across devices
+    if (email) {
+      return await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .first();
+    }
+    return null;
   },
 });

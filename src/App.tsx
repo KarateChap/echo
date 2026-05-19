@@ -23,7 +23,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   // DB user record is the source of truth for wallet address
   const dbUser = useQuery(
     api.users.getByPrivyId,
-    user?.id ? { privyId: user.id } : "skip",
+    user?.id ? { privyId: user.id, email: user.email?.address } : "skip",
   );
 
   // Resolve local Privy wallet as fallback for first-time users
@@ -48,13 +48,15 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     });
   }, [ready, authenticated, user, walletAddress, upsertUser]);
 
-  // Trigger embedded wallet creation only if no wallet exists anywhere
+  // Create embedded wallet only for first-time users (no wallet in DB or locally)
+  // dbUser === undefined means still loading; dbUser === null means no record yet
   useEffect(() => {
-    if (!ready || !authenticated || walletAddress) return;
+    if (!ready || !authenticated || dbUser === undefined) return;
+    if (dbUser?.walletAddress || localWalletAddress) return;
     createWallet().catch((err) => {
       console.warn("Embedded wallet creation failed:", err);
     });
-  }, [ready, authenticated, walletAddress, createWallet]);
+  }, [ready, authenticated, dbUser, localWalletAddress, createWallet]);
 
   if (!ready) return <div className="grid h-full place-items-center text-sm opacity-60">Loading…</div>;
   if (!authenticated) return <Navigate to="/" replace />;

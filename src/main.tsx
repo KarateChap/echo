@@ -26,7 +26,7 @@ createRoot(document.getElementById("root")!).render(
         },
         embeddedWallets: {
           ethereum: {
-            createOnLogin: "users-without-wallets",
+            createOnLogin: "off",
           },
         },
         defaultChain: morphHoodi,

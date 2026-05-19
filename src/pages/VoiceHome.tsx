@@ -904,8 +904,8 @@ export default function VoiceHome() {
             )}
           </button>
         </div>
-        <nav className="flex gap-5">
-          <Link to="/app/rules" className="glass-nav inline-flex items-center gap-1.5">
+        <nav className="flex w-full justify-center gap-5">
+          <Link to="/app/rules" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5">
             Rules
             {unseenRules > 0 && (
               <span className="glass-unseen-badge">
@@ -913,7 +913,7 @@ export default function VoiceHome() {
               </span>
             )}
           </Link>
-          <Link to="/app/activity" className="glass-nav inline-flex items-center gap-1.5">
+          <Link to="/app/activity" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5">
             Activity
             {unseenActivity > 0 && (
               <span className="glass-unseen-badge">
@@ -921,7 +921,7 @@ export default function VoiceHome() {
               </span>
             )}
           </Link>
-          <Link to="/app/recipients" className="glass-nav inline-flex items-center gap-1.5">
+          <Link to="/app/recipients" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5">
             Recipients
           </Link>
         </nav>

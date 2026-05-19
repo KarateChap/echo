@@ -8,7 +8,8 @@ export default defineSchema({
     email: v.optional(v.string()),
     displayName: v.optional(v.string()),
     preferredLanguage: v.optional(v.string()),
-  }).index("by_privyId", ["privyId"]),
+  }).index("by_privyId", ["privyId"])
+    .index("by_email", ["email"]),
 
   recipients: defineTable({
     ownerId: v.id("users"),
