@@ -17,9 +17,10 @@ import { useUnseenCounts } from "@/lib/useUnseenCounts";
 import { useDragToCenter } from "@/lib/useDragToCenter";
 import { useAudioLevelContext } from "@/lib/AudioLevelContext";
 import { useVisibleTokens } from "@/lib/useVisibleTokens";
+import { fundAgentWallet } from "@/lib/fundAgentWallet";
 import type { Id } from "../../convex/_generated/dataModel";
 
-type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "done" | "error";
+type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "funding" | "done" | "error";
 type ProcessingSubStep = "uploading" | "transcribing" | "parsing";
 
 function StepDot({ active, done }: { active: boolean; done: boolean }) {
@@ -109,13 +110,21 @@ export default function VoiceHome() {
   useEffect(() => { recorder.prewarmMic(); }, []);
 
   const [ttsAudioEl, setTtsAudioEl] = useState<HTMLAudioElement | null>(null);
-  const micLevel = useAudioAnalyser(recorder.stream);
-  const ttsLevel = useAudioAnalyser(ttsAudioEl);
-  const audioLevel = Math.max(micLevel, ttsLevel);
+  const micLevelRef = useAudioAnalyser(recorder.stream);
+  const ttsLevelRef = useAudioAnalyser(ttsAudioEl);
 
-  // Push audio level to background particle wave
-  const { setAudioLevel } = useAudioLevelContext();
-  useEffect(() => { setAudioLevel(audioLevel); }, [audioLevel, setAudioLevel]);
+  // Combined audio level ref — read by AudioVisualizer & ParticleWaveBackground in their RAF loops
+  const { audioLevelRef } = useAudioLevelContext();
+  // Sync mic+tts levels into the shared ref via a lightweight RAF (no React state updates)
+  useEffect(() => {
+    let raf = 0;
+    function sync() {
+      audioLevelRef.current = Math.max(micLevelRef.current, ttsLevelRef.current);
+      raf = requestAnimationFrame(sync);
+    }
+    raf = requestAnimationFrame(sync);
+    return () => cancelAnimationFrame(raf);
+  }, [audioLevelRef, micLevelRef, ttsLevelRef]);
 
   const [step, setStep] = useState<FlowStep>("idle");
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
@@ -277,6 +286,28 @@ export default function VoiceHome() {
         return;
       }
 
+      // Fund the agent wallet from the user's Privy wallet
+      if (!wallet) {
+        setErrorMessage("Wallet not ready. Please try again.");
+        setStep("error");
+        return;
+      }
+      const tokenInfo = allTokens.find((t) => t.symbol === resolvedToken);
+      if (!tokenInfo) {
+        setErrorMessage(`Token ${resolvedToken} not found.`);
+        setStep("error");
+        return;
+      }
+      const amount = intent.amount ?? intent.amountUsdc ?? 0;
+      if (amount <= 0) {
+        setErrorMessage("Invalid amount.");
+        setStep("error");
+        return;
+      }
+
+      setStep("funding");
+      const fundingTxHash = await fundAgentWallet({ wallet, token: tokenInfo, amount });
+
       // Create the rule (triggers executePayment + sendClaimEmail)
       const result = await createRule({
         privyId: user.id,
@@ -284,10 +315,11 @@ export default function VoiceHome() {
         recipientEmail,
         recipientHint: intent.recipient?.hint,
         kind: intent.kind,
-        amountUsdc: intent.amount ?? intent.amountUsdc ?? 0,
+        amountUsdc: amount,
         token: resolvedToken,
         schedule: intent.schedule ?? undefined,
         condition: intent.condition ?? undefined,
+        fundingTxHash,
       });
       setCreatedRuleId(result.ruleId);
       setCreatedRecipientName(result.recipientName);
@@ -400,7 +432,7 @@ export default function VoiceHome() {
               {/* Center orb */}
               <div className="absolute inset-0 flex items-center justify-center">
                 <AudioVisualizer
-                  level={audioLevel}
+                  levelRef={audioLevelRef}
                   active={isOrbActive}
                   recording={step === "recording"}
                   size={160}
@@ -696,6 +728,22 @@ export default function VoiceHome() {
             <div className="text-3xl animate-pulse">🎙</div>
             <div className="text-sm text-white/60">{msgSeconds}s / 30s</div>
             <button onClick={handleStopMessage} className="btn-accent">Stop & save</button>
+          </div>
+        )}
+
+        {/* === FUNDING === */}
+        {step === "funding" && (
+          <div className="glass-card w-full max-w-sm mx-auto space-y-4 p-6 text-center" style={{ animation: "fade-in-up 0.4s ease-out both" }}>
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+              <svg className="h-6 w-6 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </div>
+            <div className="font-medium text-white/90">Funding payment...</div>
+            <p className="text-[13px] leading-relaxed text-white/45">
+              Transferring {parsedIntent?.amount ?? parsedIntent?.amountUsdc} {selectedToken} from your wallet to the payment agent.
+            </p>
           </div>
         )}
 

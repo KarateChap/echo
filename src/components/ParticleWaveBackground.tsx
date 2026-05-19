@@ -66,9 +66,7 @@ interface Particle {
 
 export default function ParticleWaveBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { audioLevel } = useAudioLevelContext();
-  const levelRef = useRef(0);
-  levelRef.current = audioLevel;
+  const { audioLevelRef: levelRef } = useAudioLevelContext();
   const smoothRef = useRef(0);
   const timeRef = useRef(0);
   const rafRef = useRef(0);

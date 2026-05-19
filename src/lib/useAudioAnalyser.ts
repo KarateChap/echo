@@ -1,20 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 
 /**
  * Connects to a MediaStream or HTMLAudioElement via Web Audio API
- * and returns a normalized audio level (0–1) updated every animation frame.
- * Uses both time-domain peak and frequency energy for maximum sensitivity.
+ * and writes a normalized audio level (0–1) into a ref every animation frame.
+ * Returns a ref so consumers can read .current in their own RAF loops
+ * without triggering React re-renders.
  */
 export function useAudioAnalyser(
   source: MediaStream | HTMLAudioElement | null,
-) {
-  const [level, setLevel] = useState(0);
+): MutableRefObject<number> {
+  const levelRef = useRef(0);
   const ctxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number>(0);
 
   useEffect(() => {
     if (!source) {
-      setLevel(0);
+      levelRef.current = 0;
       return;
     }
 
@@ -77,7 +78,7 @@ export function useAudioAnalyser(
       const clamped = Math.min(1, boosted);
 
       if (!cancelled) {
-        setLevel(clamped);
+        levelRef.current = clamped;
         rafRef.current = requestAnimationFrame(tick);
       }
     }
@@ -93,5 +94,5 @@ export function useAudioAnalyser(
     };
   }, [source]);
 
-  return level;
+  return levelRef;
 }

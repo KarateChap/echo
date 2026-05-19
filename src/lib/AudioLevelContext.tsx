@@ -1,19 +1,21 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useRef, useMemo, useCallback, type ReactNode, type MutableRefObject } from "react";
 
 interface AudioLevelCtx {
-  audioLevel: number;
+  audioLevelRef: MutableRefObject<number>;
   setAudioLevel: (v: number) => void;
 }
 
 const AudioLevelContext = createContext<AudioLevelCtx>({
-  audioLevel: 0,
+  audioLevelRef: { current: 0 },
   setAudioLevel: () => {},
 });
 
 export function AudioLevelProvider({ children }: { children: ReactNode }) {
-  const [audioLevel, setAudioLevel] = useState(0);
+  const audioLevelRef = useRef(0);
+  const setAudioLevel = useCallback((v: number) => { audioLevelRef.current = v; }, []);
+  const value = useMemo(() => ({ audioLevelRef, setAudioLevel }), [setAudioLevel]);
   return (
-    <AudioLevelContext.Provider value={{ audioLevel, setAudioLevel }}>
+    <AudioLevelContext.Provider value={value}>
       {children}
     </AudioLevelContext.Provider>
   );
