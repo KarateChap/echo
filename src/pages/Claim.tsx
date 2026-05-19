@@ -32,19 +32,23 @@ export default function Claim() {
       (a): a is Extract<typeof a, { type: "wallet" }> => a.type === "wallet",
     ) as { address?: string } | undefined)?.address;
 
-  // Create wallet if missing, then upsert user record
+  // Upsert user record whenever auth or wallet changes
   useEffect(() => {
     if (!ready || !authenticated || !user) return;
-    if (!walletAddress) {
-      createWallet({ chainType: "ethereum" }).catch(() => {});
-      return;
-    }
     void upsertUser({
       privyId: user.id,
-      walletAddress,
+      walletAddress: walletAddress ?? undefined,
       email: user.email?.address,
     });
-  }, [ready, authenticated, user, walletAddress, upsertUser, createWallet]);
+  }, [ready, authenticated, user, walletAddress, upsertUser]);
+
+  // Trigger embedded wallet creation if Privy auto-create didn't fire
+  useEffect(() => {
+    if (!ready || !authenticated || walletAddress) return;
+    createWallet().catch((err) => {
+      console.warn("Embedded wallet creation failed:", err);
+    });
+  }, [ready, authenticated, walletAddress, createWallet]);
 
   const claim = useQuery(
     api.claims.getByToken,
