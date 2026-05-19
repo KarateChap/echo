@@ -1,4 +1,4 @@
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { mutation, query, internalQuery, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 async function linkWalletToRecipients(ctx: MutationCtx, email: string, walletAddress: string) {
@@ -49,6 +49,13 @@ export const upsertUser = mutation({
     }
 
     return userId;
+  },
+});
+
+export const getInternal = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    return await ctx.db.get(userId);
   },
 });
 

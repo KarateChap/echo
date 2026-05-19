@@ -74,7 +74,17 @@ export const executePayment = internalAction({
         transport: http(rpcUrl),
       });
 
-      const token = rule.token ?? "USDC";
+      const token = rule.token;
+      if (!token || token === "Unknown") {
+        await ctx.runMutation(internal.transactions.recordFailure, {
+          ruleId,
+          error: "Rule is missing token — cannot execute payment",
+        });
+        if (rule.kind === "oneShot") {
+          await ctx.runMutation(internal.rules.markCancelled, { ruleId });
+        }
+        return;
+      }
       let txHash: `0x${string}`;
 
       if (token === "ETH") {
@@ -148,6 +158,18 @@ export const executePayment = internalAction({
       if (rule.kind === "oneShot") {
         await ctx.runMutation(internal.rules.markCompleted, { ruleId });
       }
+
+      // Track execution count for bounded recurring rules
+      if (rule.kind === "recurring" && rule.totalOccurrences) {
+        const newCount = (rule.executionCount ?? 0) + 1;
+        await ctx.runMutation(internal.rules.incrementExecutionCount, {
+          ruleId,
+          newCount,
+        });
+        if (newCount >= rule.totalOccurrences) {
+          await ctx.runMutation(internal.rules.markCompleted, { ruleId });
+        }
+      }
     } catch (e) {
       const rawError = e instanceof Error ? e.message : String(e);
 
@@ -172,6 +194,127 @@ export const executePayment = internalAction({
       if (rule.kind === "oneShot") {
         await ctx.runMutation(internal.rules.markCancelled, { ruleId });
       }
+    }
+  },
+});
+
+export const executeRefund = internalAction({
+  args: {
+    ruleId: v.id("rules"),
+    refundAmount: v.number(),
+  },
+  handler: async (ctx, { ruleId, refundAmount }) => {
+    const agentKey = process.env.AGENT_PRIVATE_KEY;
+    const rpcUrl = process.env.MORPH_HOODI_RPC_URL;
+
+    if (!agentKey || !rpcUrl) {
+      console.error("[executeRefund] Missing env: AGENT_PRIVATE_KEY or MORPH_HOODI_RPC_URL");
+      return;
+    }
+
+    const TOKEN_ADDRESSES: Record<string, { address: string; decimals: number }> = {
+      USDC: { address: process.env.USDC_ADDRESS ?? "0x1178341838B764dCfFA5BCEAb1d41443Fd71a227", decimals: 6 },
+      USDT: { address: "0xb646c743b4ba47ac03bee360bb2484fb55db8d7e", decimals: 6 },
+      HTT: { address: "0xecf966cc754bc411e1f1106fbb4e343b835e85e4", decimals: 18 },
+    };
+
+    const rule = await ctx.runQuery(internal.rules.getInternal, { ruleId });
+    if (!rule) {
+      console.error("[executeRefund] Rule not found:", ruleId);
+      return;
+    }
+
+    // Get the owner's wallet address to send refund to
+    const owner = await ctx.runQuery(internal.users.getInternal, { userId: rule.ownerId });
+    if (!owner?.walletAddress) {
+      console.error("[executeRefund] Owner wallet not found for rule:", ruleId);
+      return;
+    }
+
+    try {
+      const { createWalletClient, createPublicClient, http, parseUnits, parseEther, encodeFunctionData, defineChain } = await import("viem");
+      const { privateKeyToAccount } = await import("viem/accounts");
+
+      const morphHoodi = defineChain({
+        id: 2910,
+        name: "Morph Hoodi Testnet",
+        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+        rpcUrls: { default: { http: [rpcUrl] } },
+        blockExplorers: { default: { name: "MorphScan", url: "https://explorer-hoodi.morph.network" } },
+        testnet: true,
+      });
+
+      const account = privateKeyToAccount(agentKey as `0x${string}`);
+      const client = createWalletClient({
+        account,
+        chain: morphHoodi,
+        transport: http(rpcUrl),
+      });
+      const publicClient = createPublicClient({
+        chain: morphHoodi,
+        transport: http(rpcUrl),
+      });
+
+      const token = rule.token;
+      if (!token || token === "Unknown") {
+        console.error("[executeRefund] Rule missing token:", ruleId);
+        return;
+      }
+
+      let txHash: `0x${string}`;
+
+      if (token === "ETH") {
+        const value = parseEther(refundAmount.toString());
+        txHash = await client.sendTransaction({
+          to: owner.walletAddress as `0x${string}`,
+          value,
+          chain: morphHoodi,
+        });
+      } else {
+        const tokenInfo = TOKEN_ADDRESSES[token];
+        if (!tokenInfo) {
+          console.error("[executeRefund] Unsupported token:", token);
+          return;
+        }
+
+        const amount = parseUnits(refundAmount.toString(), tokenInfo.decimals);
+        const data = encodeFunctionData({
+          abi: [{
+            name: "transfer",
+            type: "function",
+            inputs: [
+              { name: "to", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+            outputs: [{ name: "", type: "bool" }],
+            stateMutability: "nonpayable",
+          }],
+          functionName: "transfer",
+          args: [owner.walletAddress as `0x${string}`, amount],
+        });
+
+        txHash = await client.sendTransaction({
+          to: tokenInfo.address as `0x${string}`,
+          data,
+          chain: morphHoodi,
+        });
+      }
+
+      await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 30_000 });
+
+      // Record the refund transaction
+      await ctx.runMutation(internal.transactions.recordRefund, {
+        ruleId,
+        ownerId: rule.ownerId,
+        recipientId: rule.recipientId,
+        amountUsdc: refundAmount,
+        token,
+        txHash,
+      });
+
+      console.log(`[executeRefund] Refunded ${refundAmount} ${token} to ${owner.walletAddress} for rule ${ruleId}`);
+    } catch (e) {
+      console.error("[executeRefund] Failed:", e instanceof Error ? e.message : String(e));
     }
   },
 });

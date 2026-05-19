@@ -87,13 +87,13 @@ export default function TransactionNotifier() {
             ? "Payment Sent"
             : "Payment Received",
         detail: failed
-          ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "USDC"} to ${tx.recipientName}`
+          ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
           : isSent
-            ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "USDC"} to ${tx.recipientName}`
+            ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
             : `from ${tx.senderName}`,
         type: failed ? "failed" : isSent ? "sent" : "received",
         amount: isReceived ? tx.amountUsdc : undefined,
-        token: isReceived ? (tx.token ?? "USDC") : undefined,
+        token: isReceived ? (tx.token ?? "Unknown") : undefined,
       };
     });
 

@@ -123,6 +123,9 @@ export default function Rules() {
     recipientName: string;
     amountUsdc: number;
     token?: string;
+    totalFunded?: number;
+    executionCount?: number;
+    totalOccurrences?: number;
   } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const visibleRules = filteredRules?.slice(0, visibleCount);
@@ -166,9 +169,9 @@ export default function Rules() {
             {visibleRules.map((rule) => {
               const isExpanded = expandedId === rule._id;
               const scheduleText = rule.kind === "recurring" && rule.schedule
-                ? formatSchedule(rule.schedule)
+                ? formatSchedule(rule.schedule, rule.expiresAt, rule.totalOccurrences)
                 : rule.kind === "conditional" && rule.condition
-                ? `When below ${rule.condition.walletBelowUsdc} ${rule.token ?? "USDC"} → top up ${rule.condition.topUpUsdc} ${rule.token ?? "USDC"}`
+                ? `When below ${rule.condition.walletBelowUsdc} ${rule.token ?? "Unknown"} → top up ${rule.condition.topUpUsdc} ${rule.token ?? "Unknown"}`
                 : "One-time";
 
               return (
@@ -197,8 +200,19 @@ export default function Rules() {
                       </svg>
                     </div>
                   </div>
-                  <div className="text-lg font-semibold">{rule.amountUsdc.toLocaleString()} {rule.token ?? "USDC"}</div>
+                  <div className="text-lg font-semibold">{rule.amountUsdc.toLocaleString()} {rule.token ?? "Unknown"}</div>
                   <div className="text-white/50">{scheduleText}</div>
+                  {rule.totalOccurrences && rule.totalOccurrences > 1 && (
+                    <div className="flex items-center gap-2 text-xs text-white/40">
+                      <div className="h-1.5 flex-1 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary/60 transition-all"
+                          style={{ width: `${((rule.executionCount ?? 0) / rule.totalOccurrences) * 100}%` }}
+                        />
+                      </div>
+                      <span>{rule.executionCount ?? 0}/{rule.totalOccurrences} sent</span>
+                    </div>
+                  )}
 
                   {/* Expanded details */}
                   {isExpanded && (
@@ -223,8 +237,8 @@ export default function Rules() {
                             </div>
                             {rule.schedule.kind === "cron" && (
                               <div className="flex justify-between">
-                                <span className="text-white/40">Cron expression</span>
-                                <span className="font-mono text-white/70">{rule.schedule.value}</span>
+                                <span className="text-white/40">Schedule</span>
+                                <span className="text-white/70">{formatSchedule(rule.schedule, rule.expiresAt, rule.totalOccurrences)}</span>
                               </div>
                             )}
                           </>
@@ -290,7 +304,7 @@ export default function Rules() {
                         <div className="flex gap-2 pt-1">
                           {rule.status === "active" && (
                             <button
-                              onClick={() => setConfirmAction({ ruleId: rule._id, action: "pause", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token })}
+                              onClick={() => setConfirmAction({ ruleId: rule._id, action: "pause", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences })}
                               className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-3 py-1 text-xs text-yellow-400 transition hover:bg-yellow-500/20"
                             >
                               Pause
@@ -305,7 +319,7 @@ export default function Rules() {
                             </button>
                           )}
                           <button
-                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token })}
+                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences })}
                             className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
                           >
                             Cancel
@@ -325,7 +339,7 @@ export default function Rules() {
                         <div className="flex gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
                           {rule.status === "active" && (
                             <button
-                              onClick={() => setConfirmAction({ ruleId: rule._id, action: "pause", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token })}
+                              onClick={() => setConfirmAction({ ruleId: rule._id, action: "pause", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences })}
                               className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-3 py-1 text-xs text-yellow-400 transition hover:bg-yellow-500/20"
                             >
                               Pause
@@ -340,7 +354,7 @@ export default function Rules() {
                             </button>
                           )}
                           <button
-                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token })}
+                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences })}
                             className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
                           >
                             Cancel
@@ -409,7 +423,7 @@ export default function Rules() {
             <p className="text-center text-sm text-white/50">
               Are you sure you want to {confirmAction.action} the rule sending{" "}
               <span className="font-medium text-white/80">
-                {confirmAction.amountUsdc.toLocaleString()} {confirmAction.token ?? "USDC"}
+                {confirmAction.amountUsdc.toLocaleString()} {confirmAction.token ?? "Unknown"}
               </span>{" "}
               to{" "}
               <span className="font-medium text-white/80">{confirmAction.recipientName}</span>?
@@ -419,6 +433,17 @@ export default function Rules() {
                 ? "You can resume this rule anytime."
                 : "This action cannot be undone."}
             </p>
+            {confirmAction.action === "cancel" && confirmAction.totalFunded && confirmAction.executionCount !== undefined && confirmAction.totalOccurrences && (
+              <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2.5 text-center text-xs text-green-400/80">
+                {(() => {
+                  const spent = confirmAction.executionCount * confirmAction.amountUsdc;
+                  const refund = confirmAction.totalFunded - spent;
+                  return refund > 0
+                    ? `~${refund.toLocaleString()} ${confirmAction.token ?? "tokens"} will be refunded to your wallet (${confirmAction.executionCount}/${confirmAction.totalOccurrences} payments sent)`
+                    : `All ${confirmAction.totalOccurrences} payments have been sent — nothing to refund.`;
+                })()}
+              </div>
+            )}
 
             {/* Buttons */}
             <div className="flex gap-3 pt-1">

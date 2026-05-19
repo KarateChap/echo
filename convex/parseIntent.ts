@@ -18,8 +18,29 @@ Output ONLY valid JSON matching this schema — no markdown, no explanation:
   "amount": number,
   "token": "USDC" | "USDT" | "ETH" | "HTT",
   "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once", "value": string } | null,
-  "condition": { "walletBelowUsdc": number, "topUpUsdc": number } | null
+  "condition": { "walletBelowUsdc": number, "topUpUsdc": number } | null,
+  "durationMinutes": number | null,
+  "totalOccurrences": number | null
 }
+
+"durationMinutes" — set ONLY when the user specifies a time-bounded duration:
+- "for the next 5 minutes" → 5
+- "for the next 1 hour" / "for 1 hour" → 60
+- "for 30 minutes" → 30
+- If no duration mentioned → null
+
+"totalOccurrences" — the total number of payments for a recurring rule. REQUIRED for all recurring rules.
+Calculate from either an explicit count or from durationMinutes ÷ interval:
+- "5 times" / "5 payments" → 5
+- "for 3 months" at monthly schedule → 3
+- "for 5 minutes" at per-minute schedule → 5
+- "for 1 hour" at every-5-minutes schedule → 12
+- "for 6 hours" at every-2-hours schedule → 3
+- "every month for a year" → 12
+- "every week for 2 months" → 8
+- If kind="recurring" and the user does NOT specify a count or duration, return:
+  { "error": "Please specify how many times or for how long (e.g. 'for 5 minutes' or '3 times')" }
+- For oneShot and conditional → null
 
 ────────────────────────────────
 TOKEN RULES
@@ -89,6 +110,16 @@ SCHEDULE & KIND RULES
    - "every 1st and 15th" → { kind:"cron", value:"0 9 1,15 * *" }
    - "every Monday and Thursday" → { kind:"cron", value:"0 9 * * 1,4" }
 
+7b. RECURRING SUB-DAILY: User wants to send more frequently than daily (every N minutes, every N hours).
+   → kind="recurring", schedule={ kind:"cron", value:"<5-field cron>" }
+   - "every minute" / "per minute" / "each minute" → { kind:"cron", value:"*/1 * * * *" }
+   - "every 5 minutes" → { kind:"cron", value:"*/5 * * * *" }
+   - "every 30 minutes" / "every half hour" → { kind:"cron", value:"*/30 * * * *" }
+   - "every 2 hours" → { kind:"cron", value:"0 */2 * * *" }
+   - "every hour" → { kind:"cron", value:"0 * * * *" }
+   The minimum supported interval is 1 minute.
+   If the user also specifies a duration ("for the next N minutes/hours"), set durationMinutes accordingly.
+
 8. CONDITIONAL: User sets a balance threshold to auto-top-up.
    → kind="conditional", schedule=null, condition={ walletBelowUsdc:<threshold>, topUpUsdc:<amount> }
    - "If wallet drops below X, send Y"
@@ -102,41 +133,48 @@ TAGLISH EXAMPLES
 ────────────────────────────────
 
 IMMEDIATE (oneShot):
-- "Padala 10k kay wife" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":10000,"token":"USDC","schedule":null,"condition":null}
-- "Send mama 5000 now" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":null}
-- "Transfer 0.5 ETH to John" → {"kind":"oneShot","recipient":{"name":"John","hint":""},"amount":0.5,"token":"ETH","schedule":null,"condition":null}
-- "Pay Maria 200 dollars" → {"kind":"oneShot","recipient":{"name":"Maria","hint":""},"amount":200,"token":"USDC","schedule":null,"condition":null}
-- "Padala kay ate ng limang daan" → {"kind":"oneShot","recipient":{"name":"Ate","hint":""},"amount":500,"token":"USDC","schedule":null,"condition":null}
+- "Padala 10k kay wife" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":10000,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Send mama 5000 now" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Transfer 0.5 ETH to John" → {"kind":"oneShot","recipient":{"name":"John","hint":""},"amount":0.5,"token":"ETH","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Pay Maria 200 dollars" → {"kind":"oneShot","recipient":{"name":"Maria","hint":""},"amount":200,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Padala kay ate ng limang daan" → {"kind":"oneShot","recipient":{"name":"Ate","hint":""},"amount":500,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
 
 FUTURE ONE-SHOT (once):
-- "Send mama 10k on June 15" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-06-15>"},"condition":null}
-- "Padala 5000 on Christmas kay papa" → {"kind":"oneShot","recipient":{"name":"Papa","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-12-25>"},"condition":null}
-- "Send wife 3000 next Friday" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"once","value":"<resolved date>"},"condition":null}
+- "Send mama 10k on June 15" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-06-15>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Padala 5000 on Christmas kay papa" → {"kind":"oneShot","recipient":{"name":"Papa","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-12-25>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Send wife 3000 next Friday" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"once","value":"<resolved date>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
 
 MONTHLY:
-- "Send mama 10k every 1st of the month" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null}
-- "Padala 5000 kay ate every month" → {"kind":"recurring","recipient":{"name":"Ate","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null}
-- "Send 3000 to papa on the 15th monthly" → {"kind":"recurring","recipient":{"name":"Papa","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"monthly","value":"15"},"condition":null}
-- "Every end of month, send mama 10k" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"monthly","value":"last"},"condition":null}
+- "Send mama 10k every 1st of the month for 6 months" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":6}
+- "Padala 5000 kay ate every month for a year" → {"kind":"recurring","recipient":{"name":"Ate","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":12}
+- "Send 3000 to papa on the 15th monthly 3 times" → {"kind":"recurring","recipient":{"name":"Papa","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"monthly","value":"15"},"condition":null,"durationMinutes":null,"totalOccurrences":3}
+- "Every end of month, send mama 10k" → {"error":"Please specify how many times or for how long (e.g. 'for 6 months' or '3 times')"}
 
 WEEKLY:
-- "Send wife 1000 every Monday" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1000,"token":"USDC","schedule":{"kind":"weekly","value":"Monday"},"condition":null}
-- "Padala 500 every Friday kay mama" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":500,"token":"USDC","schedule":{"kind":"weekly","value":"Friday"},"condition":null}
+- "Send wife 1000 every Monday for 4 weeks" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1000,"token":"USDC","schedule":{"kind":"weekly","value":"Monday"},"condition":null,"durationMinutes":null,"totalOccurrences":4}
+- "Padala 500 every Friday kay mama" → {"error":"Please specify how many times or for how long (e.g. 'for 4 weeks' or '8 times')"}
 
 DAILY:
-- "Send mama 100 every day" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":100,"token":"USDC","schedule":{"kind":"daily","value":"09:00"},"condition":null}
-- "Daily allowance ng 50 USDC para kay son" → {"kind":"recurring","recipient":{"name":"Son","hint":""},"amount":50,"token":"USDC","schedule":{"kind":"daily","value":"09:00"},"condition":null}
+- "Send mama 100 every day for 7 days" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":100,"token":"USDC","schedule":{"kind":"daily","value":"09:00"},"condition":null,"durationMinutes":null,"totalOccurrences":7}
+- "Daily allowance ng 50 USDC para kay son for 30 days" → {"kind":"recurring","recipient":{"name":"Son","hint":""},"amount":50,"token":"USDC","schedule":{"kind":"daily","value":"09:00"},"condition":null,"durationMinutes":null,"totalOccurrences":30}
 
 BIWEEKLY:
-- "Send 5000 every two weeks kay mama" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"biweekly","value":"Friday"},"condition":null}
-- "Every other Friday, padala 3000 kay papa" → {"kind":"recurring","recipient":{"name":"Papa","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"biweekly","value":"Friday"},"condition":null}
+- "Send 5000 every two weeks kay mama for 3 months" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"biweekly","value":"Friday"},"condition":null,"durationMinutes":null,"totalOccurrences":6}
+- "Every other Friday, padala 3000 kay papa 4 times" → {"kind":"recurring","recipient":{"name":"Papa","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"biweekly","value":"Friday"},"condition":null,"durationMinutes":null,"totalOccurrences":4}
 
 MULTI-DAY (cron):
-- "Send 1000 every 1st and 15th kay mama" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":1000,"token":"USDC","schedule":{"kind":"cron","value":"0 9 1,15 * *"},"condition":null}
+- "Send 1000 every 1st and 15th kay mama for 3 months" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":1000,"token":"USDC","schedule":{"kind":"cron","value":"0 9 1,15 * *"},"condition":null,"durationMinutes":null,"totalOccurrences":6}
+
+SUB-DAILY:
+- "For the next 5 minutes, send 1 HTT per minute to my wife" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1,"token":"HTT","schedule":{"kind":"cron","value":"*/1 * * * *"},"condition":null,"durationMinutes":5,"totalOccurrences":5}
+- "Send mama 10 USDC every 5 minutes for 30 minutes" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10,"token":"USDC","schedule":{"kind":"cron","value":"*/5 * * * *"},"condition":null,"durationMinutes":30,"totalOccurrences":6}
+- "Every 2 hours, padala 100 kay wife for the next 6 hours" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":100,"token":"USDC","schedule":{"kind":"cron","value":"0 */2 * * *"},"condition":null,"durationMinutes":360,"totalOccurrences":3}
+- "Send 1 HTT every minute to my wife 10 times" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1,"token":"HTT","schedule":{"kind":"cron","value":"*/1 * * * *"},"condition":null,"durationMinutes":null,"totalOccurrences":10}
+- "Send 1 HTT every minute to my wife" → {"error":"Please specify how many times or for how long (e.g. 'for 5 minutes' or '10 times')"}
 
 CONDITIONAL:
-- "Pag bumaba na below 2k yung wallet ni ate, dagdagan ng 3k" → {"kind":"conditional","recipient":{"name":"Ate","hint":""},"amount":3000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":2000,"topUpUsdc":3000}}
-- "If mama's wallet drops below 1000, top up 5000" → {"kind":"conditional","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":1000,"topUpUsdc":5000}}
+- "Pag bumaba na below 2k yung wallet ni ate, dagdagan ng 3k" → {"kind":"conditional","recipient":{"name":"Ate","hint":""},"amount":3000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":2000,"topUpUsdc":3000},"durationMinutes":null,"totalOccurrences":null}
+- "If mama's wallet drops below 1000, top up 5000" → {"kind":"conditional","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":1000,"topUpUsdc":5000},"durationMinutes":null,"totalOccurrences":null}
 
 ERROR CASES:
 - "Send money" (no recipient, no amount) → {"error":"Please specify who to send to and the amount"}
@@ -196,6 +234,16 @@ export const parseIntent = internalAction({
       // Validate parsed JSON structure
       const parsed = JSON.parse(raw);
 
+      // Force-override token with UI selection so GPT can't default to USDC
+      if (selectedToken && !parsed.error) {
+        parsed.token = selectedToken;
+      }
+
+      // Validate that a token was determined
+      if (!parsed.error && !parsed.token) {
+        parsed.error = "Could not determine which token to send. Please try again.";
+      }
+
       // If the model returned an error, pass it through
       if (!parsed.error) {
         const validKinds = ["recurring", "conditional", "oneShot"];
@@ -217,11 +265,31 @@ export const parseIntent = internalAction({
         if (parsed.schedule && (!parsed.schedule.value || parsed.schedule.value.trim() === "")) {
           throw new Error("Schedule value is required");
         }
+
+        // Post-process: fix common GPT cron mistakes for sub-daily patterns.
+        // GPT often generates "0 * * * *" (hourly) when "every minute" was intended.
+        if (parsed.schedule?.kind === "cron") {
+          const lower = transcript.toLowerCase();
+          const wantsMinute = /\bper minute\b|\bevery minute\b|\beach minute\b|\bper.minute\b|\bminute.*to\b|\bminute\b.*\bsend\b/i.test(lower);
+          const cronParts = parsed.schedule.value.trim().split(/\s+/);
+          if (wantsMinute && cronParts.length === 5) {
+            const [min, hour] = cronParts;
+            // If GPT wrote "0 * * * *" (hourly) but user said "per minute", fix it
+            if (min === "0" && hour === "*") {
+              parsed.schedule.value = "*/1 * * * *";
+            }
+          }
+        }
+
+        // Require totalOccurrences for recurring rules
+        if (parsed.kind === "recurring" && (!parsed.totalOccurrences || parsed.totalOccurrences <= 0)) {
+          parsed.error = "Please specify how many times or for how long (e.g. 'for 5 minutes' or '3 times')";
+        }
       }
 
       await ctx.runMutation(internal.voiceSessions.setIntent, {
         sessionId,
-        intent: raw,
+        intent: JSON.stringify(parsed),
       });
     } catch (e) {
       await ctx.runMutation(internal.voiceSessions.setError, {

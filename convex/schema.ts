@@ -23,7 +23,7 @@ export default defineSchema({
     recipientId: v.id("recipients"),
     kind: v.union(v.literal("recurring"), v.literal("conditional"), v.literal("oneShot")),
     amountUsdc: v.number(),
-    token: v.optional(v.string()), // "USDC" | "USDT" | "ETH" | "HTT", defaults to USDC
+    token: v.optional(v.string()), // "USDC" | "USDT" | "ETH" | "HTT" — enforced at application layer
     schedule: v.optional(v.object({
       kind: v.union(
         v.literal("monthly"), v.literal("weekly"), v.literal("daily"),
@@ -37,8 +37,12 @@ export default defineSchema({
     })),
     status: v.union(v.literal("pending"), v.literal("active"), v.literal("paused"), v.literal("cancelled"), v.literal("completed")),
     voiceMessageId: v.optional(v.id("voiceMessages")),
+    fundingTxHash: v.optional(v.string()),
     nextRunAt: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
+    totalOccurrences: v.optional(v.number()),
+    totalFunded: v.optional(v.number()),
+    executionCount: v.optional(v.number()),
   })
     .index("by_owner", ["ownerId"])
     .index("by_status_and_next_run", ["status", "nextRunAt"]),

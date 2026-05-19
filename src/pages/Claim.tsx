@@ -58,7 +58,7 @@ export default function Claim() {
   }
 
   const displaySender = truncateSender(claim.senderName);
-  const tokenSymbol = claim.cryptoToken ?? "USDC";
+  const tokenSymbol = claim.cryptoToken ?? "Unknown";
 
   // ── Not authenticated ──
   if (!authenticated) {

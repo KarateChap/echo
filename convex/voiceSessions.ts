@@ -84,7 +84,7 @@ export const setIntent = internalMutation({
       const session = await ctx.db.get(sessionId);
       const name = parsed.recipient?.name ?? "the recipient";
       const amount = (parsed.amount ?? parsed.amountUsdc)?.toLocaleString() ?? "?";
-      const token = session?.selectedToken ?? parsed.token ?? "USDC";
+      const token = session?.selectedToken ?? parsed.token ?? "Unknown";
 
       let scheduleLabel = "";
       if (parsed.schedule) {
@@ -109,9 +109,38 @@ export const setIntent = internalMutation({
           } else {
             scheduleLabel = `on ${s.value}`;
           }
+        } else if (s.kind === "cron") {
+          const parts = s.value.trim().split(/\s+/);
+          if (parts.length === 5) {
+            const [min, hour] = parts;
+            const minStep = min.match(/^\*\/(\d+)$/);
+            const hourStep = hour.match(/^\*\/(\d+)$/);
+            if (min === "*" && hour === "*") {
+              scheduleLabel = "every minute";
+            } else if (minStep) {
+              const n = parseInt(minStep[1]);
+              scheduleLabel = n === 1 ? "every minute" : `every ${n} minutes`;
+            } else if (hourStep) {
+              const n = parseInt(hourStep[1]);
+              scheduleLabel = n === 1 ? "every hour" : `every ${n} hours`;
+            } else {
+              scheduleLabel = "on the schedule you described";
+            }
+          } else {
+            scheduleLabel = "on the schedule you described";
+          }
         } else {
           scheduleLabel = "on the schedule you described";
         }
+      }
+
+      // Append duration or occurrence info
+      if (parsed.totalOccurrences) {
+        scheduleLabel += `, ${parsed.totalOccurrences} times`;
+      } else if (parsed.durationMinutes) {
+        scheduleLabel += parsed.durationMinutes < 60
+          ? `, for the next ${parsed.durationMinutes} minutes`
+          : `, for the next ${Math.round(parsed.durationMinutes / 60)} hours`;
       }
 
       const kindLabel =

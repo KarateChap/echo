@@ -114,7 +114,7 @@ export const createFromIntent = mutation({
     recipientHint: v.optional(v.string()),
     kind: v.union(v.literal("recurring"), v.literal("conditional"), v.literal("oneShot")),
     amountUsdc: v.number(),
-    token: v.optional(v.string()),
+    token: v.string(),
     schedule: v.optional(v.object({
       kind: v.union(
         v.literal("monthly"), v.literal("weekly"), v.literal("daily"),
@@ -126,6 +126,10 @@ export const createFromIntent = mutation({
       walletBelowUsdc: v.number(),
       topUpUsdc: v.number(),
     })),
+    fundingTxHash: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    totalOccurrences: v.optional(v.number()),
+    totalFunded: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.db
@@ -198,11 +202,16 @@ export const createFromIntent = mutation({
       recipientId: recipient._id,
       kind: args.kind,
       amountUsdc: args.amountUsdc,
-      token: args.token ?? "USDC",
+      token: args.token,
       schedule: args.schedule,
       condition: args.condition,
+      fundingTxHash: args.fundingTxHash,
       status,
       nextRunAt,
+      expiresAt: args.expiresAt,
+      totalOccurrences: args.totalOccurrences,
+      totalFunded: args.totalFunded,
+      executionCount: args.totalOccurrences ? 0 : undefined,
     });
 
     // For immediate one-shot rules, fire the payment now (don't wait for cron)
@@ -239,7 +248,7 @@ export const getInternal = internalQuery({
       recipientEmail: recipient?.contactEmail ?? null,
       recipientWalletAddress: recipient?.walletAddress ?? null,
       ownerName: owner?.displayName ?? owner?.email ?? "Someone",
-      token: rule.token ?? "USDC",
+      token: rule.token ?? "Unknown",
     };
   },
 });
@@ -250,6 +259,18 @@ export const cancel = mutation({
     const rule = await ctx.db.get(ruleId);
     if (!rule) throw new Error("Rule not found");
     await ctx.db.patch(ruleId, { status: "cancelled" });
+
+    // Calculate and schedule refund for unspent tokens
+    if (rule.totalFunded && rule.executionCount !== undefined) {
+      const spent = rule.executionCount * rule.amountUsdc;
+      const refundAmount = rule.totalFunded - spent;
+      if (refundAmount > 0) {
+        await ctx.scheduler.runAfter(0, internal.executePayment.executeRefund, {
+          ruleId,
+          refundAmount,
+        });
+      }
+    }
   },
 });
 
@@ -271,6 +292,13 @@ export const resume = mutation({
       ? nextScheduleRunAt(rule.schedule)
       : Date.now() + 24 * 60 * 60 * 1000;
     await ctx.db.patch(ruleId, { status: "active", nextRunAt });
+  },
+});
+
+export const incrementExecutionCount = internalMutation({
+  args: { ruleId: v.id("rules"), newCount: v.number() },
+  handler: async (ctx, { ruleId, newCount }) => {
+    await ctx.db.patch(ruleId, { executionCount: newCount });
   },
 });
 
@@ -307,7 +335,18 @@ export const advanceNextRun = internalMutation({
       nextRunAt = Date.now() + 24 * 60 * 60 * 1000;
     }
 
-    await ctx.db.patch(ruleId, { nextRunAt });
+    const newCount = (rule.executionCount ?? 0) + 1;
+
+    // If next run is past expiration or occurrence limit reached, mark completed
+    if (
+      (rule.expiresAt && nextRunAt > rule.expiresAt) ||
+      (rule.totalOccurrences && newCount >= rule.totalOccurrences)
+    ) {
+      await ctx.db.patch(ruleId, { status: "completed", executionCount: newCount });
+      return;
+    }
+
+    await ctx.db.patch(ruleId, { nextRunAt, executionCount: newCount });
   },
 });
 

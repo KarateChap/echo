@@ -1,4 +1,24 @@
-export function formatSchedule(schedule: { kind: string; value: string }) {
+export function formatSchedule(
+  schedule: { kind: string; value: string },
+  expiresAt?: number,
+  totalOccurrences?: number,
+): string {
+  const base = formatScheduleBase(schedule);
+  if (totalOccurrences) {
+    return `${base} (${totalOccurrences}x)`;
+  }
+  if (expiresAt) {
+    const remainMs = expiresAt - Date.now();
+    if (remainMs <= 0) return `${base} (expired)`;
+    const mins = Math.ceil(remainMs / 60000);
+    if (mins < 60) return `${base} for ${mins} min`;
+    const hrs = Math.round(mins / 60);
+    return `${base} for ${hrs} hr`;
+  }
+  return base;
+}
+
+function formatScheduleBase(schedule: { kind: string; value: string }) {
   if (schedule.kind === "monthly") {
     if (schedule.value === "last") return "Monthly on the last day";
     return `Monthly on the ${schedule.value}${ordinalSuffix(schedule.value)}`;
@@ -29,12 +49,16 @@ export function formatSchedule(schedule: { kind: string; value: string }) {
     const minStep = min.match(/^\*\/(\d+)$/);
     const hourStep = hour.match(/^\*\/(\d+)$/);
 
-    if (minStep) {
+    if (min === "*" && hour === "*") {
+      pieces.push("Every minute");
+    } else if (minStep) {
       const n = parseInt(minStep[1]);
       pieces.push(n === 1 ? "Every minute" : `Every ${n} minutes`);
     } else if (hourStep) {
       const n = parseInt(hourStep[1]);
       pieces.push(n === 1 ? "Every hour" : `Every ${n} hours`);
+    } else if (hour === "*" && min !== "*") {
+      pieces.push("Every hour");
     } else if (dow !== "*" && dow !== "?") {
       const dayNames: Record<string, string> = { "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday", "5": "Friday", "6": "Saturday", "7": "Sunday" };
       const days = dow.split(",").map((d) => dayNames[d] ?? d).join(", ");

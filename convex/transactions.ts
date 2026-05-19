@@ -60,6 +60,31 @@ export const getPendingNotifications = internalQuery({
   },
 });
 
+export const recordRefund = internalMutation({
+  args: {
+    ruleId: v.id("rules"),
+    ownerId: v.id("users"),
+    recipientId: v.id("recipients"),
+    amountUsdc: v.number(),
+    token: v.optional(v.string()),
+    txHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("transactions", {
+      ownerId: args.ownerId,
+      ruleId: args.ruleId,
+      recipientId: args.recipientId,
+      amountUsdc: args.amountUsdc,
+      token: args.token,
+      txHash: args.txHash,
+      status: "success",
+      executedAt: Date.now(),
+      error: "REFUND",
+      notificationStatus: "skipped",
+    });
+  },
+});
+
 export const recordFailure = internalMutation({
   args: {
     ruleId: v.id("rules"),
@@ -111,7 +136,7 @@ export const listByUser = query({
     if (myRecipientIds.length > 0) {
       const allTxs = await ctx.db.query("transactions").order("desc").collect();
       received = allTxs.filter(
-        (tx) => myRecipientIds.some((id) => id === tx.recipientId) && tx.ownerId !== user._id,
+        (tx) => myRecipientIds.some((id) => id === tx.recipientId) && tx.ownerId !== user._id && tx.error !== "REFUND",
       );
     }
 
@@ -131,9 +156,10 @@ export const listByUser = query({
         const sender = await ctx.db.get(tx.ownerId);
         const isSender = tx.ownerId === user._id;
 
-        // Get voice message URL — check tx first, then fall back to the rule
+        // Get voice message URL and token — check tx first, then fall back to the rule
+        const rule = tx.ruleId ? await ctx.db.get(tx.ruleId) : null;
         let voiceMessageUrl: string | null = null;
-        const vmId = tx.voiceMessageId ?? (tx.ruleId ? (await ctx.db.get(tx.ruleId))?.voiceMessageId : undefined);
+        const vmId = tx.voiceMessageId ?? rule?.voiceMessageId;
         if (vmId) {
           const vm = await ctx.db.get(vmId);
           if (vm) {
@@ -141,8 +167,12 @@ export const listByUser = query({
           }
         }
 
+        // Resolve token: prefer tx.token, fall back to the linked rule's token
+        const resolvedToken = tx.token ?? rule?.token;
+
         return {
           ...tx,
+          token: resolvedToken,
           recipientName: recipient?.displayName ?? "Unknown",
           senderName: sender?.displayName ?? sender?.email ?? "Someone",
           isSender,

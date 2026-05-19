@@ -140,29 +140,31 @@ export default function Activity() {
 }
 
 function TxCard({ tx }: { tx: any }) {
+  const isRefund = tx.error === "REFUND";
   return (
     <div className="glass-card glass-card-hover space-y-1 p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <TruncatedText
-            text={tx.isSender ? `→ ${tx.recipientName}` : `← from ${tx.senderName}`}
+            text={isRefund ? "← Refund" : tx.isSender ? `→ ${tx.recipientName}` : `← from ${tx.senderName}`}
             className="block truncate font-medium"
           />
           <span className="text-[10px] text-white/40">
-            {tx.isSender ? "Sent" : "Received"}
+            {isRefund ? "Rule cancelled — unspent tokens returned" : tx.isSender ? "Sent" : "Received"}
           </span>
         </div>
         <span className={`shrink-0 glass-badge ${
+          isRefund ? "bg-purple-500/15 text-purple-400 border-purple-500/20" :
           tx.status === "success" ? "bg-green-500/15 text-green-400 border-green-500/20" :
           tx.status === "failed" ? "bg-red-500/15 text-red-400 border-red-500/20" :
           tx.status === "submitted" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
           "bg-white/10 text-white/50"
         }`}>
-          {tx.status}
+          {isRefund ? "refund" : tx.status}
         </span>
       </div>
 
-      <div className="text-lg font-semibold">{tx.amountUsdc.toLocaleString()} {tx.token ?? "USDC"}</div>
+      <div className="text-lg font-semibold">{tx.amountUsdc.toLocaleString()} {tx.token ?? "Unknown"}</div>
 
       {tx.executedAt && (
         <div className="text-[10px] text-white/40">
@@ -187,7 +189,7 @@ function TxCard({ tx }: { tx: any }) {
         </a>
       )}
 
-      {tx.error && <TxError error={tx.error} />}
+      {tx.error && !isRefund && <TxError error={tx.error} />}
     </div>
   );
 }

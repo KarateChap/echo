@@ -298,15 +298,22 @@ export default function VoiceHome() {
         setStep("error");
         return;
       }
-      const amount = intent.amount ?? intent.amountUsdc ?? 0;
-      if (amount <= 0) {
+      const perPaymentAmount = intent.amount ?? intent.amountUsdc ?? 0;
+      if (perPaymentAmount <= 0) {
         setErrorMessage("Invalid amount.");
         setStep("error");
         return;
       }
+      const totalOccurrences = intent.totalOccurrences ?? 1;
+      const fundingAmount = perPaymentAmount * totalOccurrences;
 
       setStep("funding");
-      const fundingTxHash = await fundAgentWallet({ wallet, token: tokenInfo, amount });
+      const fundingTxHash = await fundAgentWallet({ wallet, token: tokenInfo, amount: fundingAmount });
+
+      // Compute expiration for time-bounded rules
+      const expiresAt = intent.durationMinutes
+        ? Date.now() + intent.durationMinutes * 60 * 1000
+        : undefined;
 
       // Create the rule (triggers executePayment + sendClaimEmail)
       const result = await createRule({
@@ -315,11 +322,14 @@ export default function VoiceHome() {
         recipientEmail,
         recipientHint: intent.recipient?.hint,
         kind: intent.kind,
-        amountUsdc: amount,
+        amountUsdc: perPaymentAmount,
         token: resolvedToken,
         schedule: intent.schedule ?? undefined,
         condition: intent.condition ?? undefined,
         fundingTxHash,
+        expiresAt,
+        totalOccurrences: totalOccurrences > 1 ? totalOccurrences : undefined,
+        totalFunded: totalOccurrences > 1 ? fundingAmount : undefined,
       });
       setCreatedRuleId(result.ruleId);
       setCreatedRecipientName(result.recipientName);
@@ -638,6 +648,15 @@ export default function VoiceHome() {
                     {parsedIntent.kind === "recurring" ? "Recurring" : parsedIntent.kind === "conditional" ? "Conditional" : "One-time"}
                   </span>
                 </div>
+                {parsedIntent.totalOccurrences && parsedIntent.totalOccurrences > 1 && (
+                  <div className="mt-1 text-[12px] text-white/40">
+                    {(parsedIntent.amount ?? parsedIntent.amountUsdc)?.toLocaleString()} × {parsedIntent.totalOccurrences} payments ={" "}
+                    <span className="font-medium text-white/60">
+                      {((parsedIntent.amount ?? parsedIntent.amountUsdc ?? 0) * parsedIntent.totalOccurrences).toLocaleString()}{" "}
+                      {selectedToken ?? parsedIntent.token} total
+                    </span>
+                  </div>
+                )}
                 {trustedRecipient?.contactEmail && !forceAskEmail && (
                   <div className="mt-0.5 flex items-center gap-1.5 text-[12px]">
                     <span className="truncate text-green-400/70">{trustedRecipient.contactEmail}</span>
@@ -656,7 +675,13 @@ export default function VoiceHome() {
             {/* Schedule details */}
             {parsedIntent.schedule && (
               <div className="rounded-lg bg-white/[0.03] px-4 py-2.5 text-[13px] text-white/45">
-                {formatSchedule(parsedIntent.schedule)}
+                {formatSchedule(
+                  parsedIntent.schedule,
+                  parsedIntent.durationMinutes
+                    ? Date.now() + parsedIntent.durationMinutes * 60000
+                    : undefined,
+                  parsedIntent.totalOccurrences ?? undefined,
+                )}
               </div>
             )}
 
@@ -742,7 +767,16 @@ export default function VoiceHome() {
             </div>
             <div className="font-medium text-white/90">Funding payment...</div>
             <p className="text-[13px] leading-relaxed text-white/45">
-              Transferring {parsedIntent?.amount ?? parsedIntent?.amountUsdc} {selectedToken} from your wallet to the payment agent.
+              Transferring{" "}
+              {parsedIntent?.totalOccurrences && parsedIntent.totalOccurrences > 1
+                ? ((parsedIntent?.amount ?? parsedIntent?.amountUsdc ?? 0) * parsedIntent.totalOccurrences).toLocaleString()
+                : (parsedIntent?.amount ?? parsedIntent?.amountUsdc)
+              }{" "}
+              {selectedToken} from your wallet to the payment agent
+              {parsedIntent?.totalOccurrences && parsedIntent.totalOccurrences > 1
+                ? ` (${parsedIntent.totalOccurrences} payments)`
+                : ""
+              }.
             </p>
           </div>
         )}

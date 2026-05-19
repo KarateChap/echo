@@ -7,6 +7,22 @@ export const tickScheduledRules = internalAction({
     const dueRules = await ctx.runQuery(internal.scheduler.getDueRules);
 
     for (const rule of dueRules) {
+      // Check if the rule has expired
+      if (rule.expiresAt && Date.now() > rule.expiresAt) {
+        await ctx.runMutation(internal.rules.markCompleted, {
+          ruleId: rule._id,
+        });
+        continue;
+      }
+
+      // Guard: if bounded recurring rule has completed all occurrences, mark done
+      if (rule.totalOccurrences && (rule.executionCount ?? 0) >= rule.totalOccurrences) {
+        await ctx.runMutation(internal.rules.markCompleted, {
+          ruleId: rule._id,
+        });
+        continue;
+      }
+
       // Fire payment
       await ctx.scheduler.runAfter(0, internal.executePayment.executePayment, {
         ruleId: rule._id,
