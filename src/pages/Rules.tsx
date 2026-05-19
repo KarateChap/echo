@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useQuery, useMutation } from "convex/react";
 import { Link } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
@@ -9,6 +9,9 @@ import { FilterBar } from "@/components/FilterBar";
 import { useVoiceRecorder } from "@/lib/useVoiceRecorder";
 import { VoicePlayer } from "@/components/VoicePlayer";
 import { formatSchedule } from "@/lib/formatSchedule";
+import { revokeDelegate } from "@/lib/revokeDelegate";
+import { resolveTokenAddress } from "@/lib/delegateToAgent";
+import { BUILTIN_TOKENS } from "@/lib/tokens";
 
 const PAGE_SIZE = 10;
 
@@ -117,6 +120,9 @@ export default function Rules() {
     }
   };
 
+  const { wallets } = useWallets();
+  const wallet = wallets[0];
+
   const [confirmAction, setConfirmAction] = useState<{
     ruleId: Id<"rules">;
     action: "pause" | "cancel";
@@ -126,7 +132,10 @@ export default function Rules() {
     totalFunded?: number;
     executionCount?: number;
     totalOccurrences?: number;
+    delegationTxHash?: string;
+    recipientWalletAddress?: string;
   } | null>(null);
+  const [revoking, setRevoking] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const visibleRules = filteredRules?.slice(0, visibleCount);
   const hasMore = filteredRules ? visibleCount < filteredRules.length : false;
@@ -319,7 +328,7 @@ export default function Rules() {
                             </button>
                           )}
                           <button
-                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences })}
+                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences, delegationTxHash: rule.delegationTxHash, recipientWalletAddress: rule.recipientWalletAddress ?? undefined })}
                             className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
                           >
                             Cancel
@@ -354,7 +363,7 @@ export default function Rules() {
                             </button>
                           )}
                           <button
-                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences })}
+                            onClick={() => setConfirmAction({ ruleId: rule._id, action: "cancel", recipientName: rule.recipientName, amountUsdc: rule.amountUsdc, token: rule.token, totalFunded: rule.totalFunded, executionCount: rule.executionCount, totalOccurrences: rule.totalOccurrences, delegationTxHash: rule.delegationTxHash, recipientWalletAddress: rule.recipientWalletAddress ?? undefined })}
                             className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
                           >
                             Cancel
@@ -454,11 +463,34 @@ export default function Rules() {
                 Go Back
               </button>
               <button
+                disabled={revoking}
                 onClick={async () => {
                   if (confirmAction.action === "pause") {
                     await pauseRule({ ruleId: confirmAction.ruleId });
                   } else {
-                    await cancelRule({ ruleId: confirmAction.ruleId });
+                    let revocationTxHash: string | undefined;
+
+                    // For EIP-7702 rules, revoke the on-chain delegation first
+                    if (confirmAction.delegationTxHash && wallet && confirmAction.recipientWalletAddress) {
+                      try {
+                        setRevoking(true);
+                        const tokenSymbol = confirmAction.token ?? "USDC";
+                        const tokenInfo = BUILTIN_TOKENS.find((t) => t.symbol === tokenSymbol);
+                        const tokenAddress = tokenInfo ? resolveTokenAddress(tokenInfo) : "0x0000000000000000000000000000000000000000" as `0x${string}`;
+                        revocationTxHash = await revokeDelegate({
+                          wallet,
+                          recipient: confirmAction.recipientWalletAddress as `0x${string}`,
+                          tokenAddress,
+                        });
+                      } catch (e) {
+                        console.error("On-chain revocation failed:", e);
+                        // Still cancel the rule in the DB even if revocation fails
+                      } finally {
+                        setRevoking(false);
+                      }
+                    }
+
+                    await cancelRule({ ruleId: confirmAction.ruleId, revocationTxHash });
                   }
                   setConfirmAction(null);
                 }}

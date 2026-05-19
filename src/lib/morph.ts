@@ -15,3 +15,6 @@ export const morphHoodi = defineChain({
 
 export const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS as `0x${string}`;
 export const USDC_DECIMALS = 6;
+
+export const ECHO_DELEGATOR_ADDRESS = import.meta.env.VITE_ECHO_DELEGATOR_ADDRESS as `0x${string}`;
+export const AGENT_ADDRESS = import.meta.env.VITE_AGENT_WALLET_ADDRESS as `0x${string}`;

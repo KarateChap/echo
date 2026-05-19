@@ -142,10 +142,12 @@ export const createFromIntent = mutation({
       walletBelowUsdc: v.number(),
       topUpUsdc: v.number(),
     })),
-    fundingTxHash: v.optional(v.string()),
+    fundingTxHash: v.optional(v.string()), // legacy custodial path
+    delegationTxHash: v.optional(v.string()), // EIP-7702 delegation tx
+    ownerWalletAddress: v.optional(v.string()), // user's EOA for 7702
     expiresAt: v.optional(v.number()),
     totalOccurrences: v.optional(v.number()),
-    totalFunded: v.optional(v.number()),
+    totalFunded: v.optional(v.number()), // legacy custodial path
   },
   handler: async (ctx, args) => {
     const user = await ctx.db
@@ -222,6 +224,8 @@ export const createFromIntent = mutation({
       schedule: args.schedule,
       condition: args.condition,
       fundingTxHash: args.fundingTxHash,
+      delegationTxHash: args.delegationTxHash,
+      ownerWalletAddress: args.ownerWalletAddress,
       status,
       nextRunAt,
       expiresAt: args.expiresAt,
@@ -272,20 +276,28 @@ export const getInternal = internalQuery({
       recipientEmail: recipient?.contactEmail ?? null,
       recipientWalletAddress: recipient?.walletAddress ?? null,
       ownerName: owner?.displayName ?? owner?.email ?? "Someone",
+      ownerWalletAddress: owner?.walletAddress ?? null,
       token: rule.token ?? "Unknown",
     };
   },
 });
 
 export const cancel = mutation({
-  args: { ruleId: v.id("rules") },
-  handler: async (ctx, { ruleId }) => {
+  args: {
+    ruleId: v.id("rules"),
+    revocationTxHash: v.optional(v.string()),
+  },
+  handler: async (ctx, { ruleId, revocationTxHash }) => {
     const rule = await ctx.db.get(ruleId);
     if (!rule) throw new Error("Rule not found");
-    await ctx.db.patch(ruleId, { status: "cancelled" });
+    await ctx.db.patch(ruleId, {
+      status: "cancelled",
+      ...(revocationTxHash ? { revocationTxHash } : {}),
+    });
 
-    // Calculate and schedule refund for unspent tokens
-    if (rule.totalFunded && rule.executionCount !== undefined) {
+    // Only schedule refund for legacy custodial rules (no delegation)
+    // EIP-7702 rules don't need refunds — tokens stayed in user's wallet
+    if (!rule.delegationTxHash && rule.totalFunded && rule.executionCount !== undefined) {
       const spent = rule.executionCount * rule.amountUsdc;
       const refundAmount = rule.totalFunded - spent;
       if (refundAmount > 0) {
@@ -421,6 +433,7 @@ export const listByUser = query({
           ...rule,
           recipientName: recipient?.displayName ?? "Unknown",
           recipientEmail: recipient?.contactEmail ?? null,
+          recipientWalletAddress: recipient?.walletAddress ?? null,
           voiceMessageUrl,
           voiceMessageDuration,
         };

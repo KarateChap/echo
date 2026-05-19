@@ -87,8 +87,50 @@ export const executePayment = internalAction({
       }
       let txHash: `0x${string}`;
 
-      if (token === "ETH") {
-        // Native ETH transfer
+      // EIP-7702 delegator ABI for executeTransfer
+      const delegatorAbi = [{
+        name: "executeTransfer",
+        type: "function",
+        inputs: [
+          { name: "recipient", type: "address" },
+          { name: "tokenAddress", type: "address" },
+          { name: "amount", type: "uint256" },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
+      }] as const;
+
+      const isEip7702 = rule.delegationTxHash && rule.ownerWalletAddress;
+
+      if (isEip7702) {
+        // EIP-7702 path: call executeTransfer on user's EOA (delegator code)
+        const resolvedTokenAddress = token === "ETH"
+          ? "0x0000000000000000000000000000000000000000"
+          : (TOKEN_ADDRESSES[token]?.address ?? (() => { throw new Error(`Unsupported token: ${token}`); })()) as `0x${string}`;
+
+        const tokenInfo = TOKEN_ADDRESSES[token];
+        const decimals = token === "ETH" ? 18 : tokenInfo?.decimals ?? 6;
+        const amount = token === "ETH"
+          ? parseEther(rule.amountUsdc.toString())
+          : parseUnits(rule.amountUsdc.toString(), decimals);
+
+        const data = encodeFunctionData({
+          abi: delegatorAbi,
+          functionName: "executeTransfer",
+          args: [
+            rule.recipientWalletAddress as `0x${string}`,
+            resolvedTokenAddress,
+            amount,
+          ],
+        });
+
+        txHash = await client.sendTransaction({
+          to: rule.ownerWalletAddress as `0x${string}`, // user's EOA with delegated code
+          data,
+          chain: morphHoodi,
+        });
+      } else if (token === "ETH") {
+        // Legacy: Native ETH transfer from agent wallet
         const value = parseEther(rule.amountUsdc.toString());
         txHash = await client.sendTransaction({
           to: rule.recipientWalletAddress as `0x${string}`,
@@ -96,7 +138,7 @@ export const executePayment = internalAction({
           chain: morphHoodi,
         });
       } else {
-        // ERC-20 transfer
+        // Legacy: ERC-20 transfer from agent wallet
         const tokenInfo = TOKEN_ADDRESSES[token];
         if (!tokenInfo) throw new Error(`Unsupported token: ${token}`);
 

@@ -19,7 +19,8 @@ import { useAudioLevelContext } from "@/lib/AudioLevelContext";
 import { useVisibleTokens } from "@/lib/useVisibleTokens";
 import { fundAgentWallet } from "@/lib/fundAgentWallet";
 import { useAutoStopDetection } from "@/lib/useAutoStopDetection";
-import { useVoiceCommands } from "@/lib/useVoiceCommands";
+import { useConversationListener } from "@/lib/useConversationListener";
+import { useVoiceEmail } from "@/lib/useVoiceEmail";
 import type { Id } from "../../convex/_generated/dataModel";
 
 type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "funding" | "done" | "error";
@@ -115,20 +116,54 @@ export default function VoiceHome() {
   const micLevelRef = useAudioAnalyser(recorder.stream);
   const ttsLevelRef = useAudioAnalyser(ttsAudioEl);
 
+  // Passive mic stream for voice-interactive steps (confirm, ask-email, etc.)
+  // so the orb visualizer can respond to the user's voice even when not recording.
+  const [passiveMicStream, setPassiveMicStream] = useState<MediaStream | null>(null);
+  const passiveMicLevelRef = useAudioAnalyser(passiveMicStream);
+
   // Combined audio level ref — read by AudioVisualizer & ParticleWaveBackground in their RAF loops
   const { audioLevelRef } = useAudioLevelContext();
-  // Sync mic+tts levels into the shared ref via a lightweight RAF (no React state updates)
+  // Sync mic+tts+passive levels into the shared ref via a lightweight RAF (no React state updates)
   useEffect(() => {
     let raf = 0;
     function sync() {
-      audioLevelRef.current = Math.max(micLevelRef.current, ttsLevelRef.current);
+      audioLevelRef.current = Math.max(micLevelRef.current, ttsLevelRef.current, passiveMicLevelRef.current);
       raf = requestAnimationFrame(sync);
     }
     raf = requestAnimationFrame(sync);
     return () => cancelAnimationFrame(raf);
-  }, [audioLevelRef, micLevelRef, ttsLevelRef]);
+  }, [audioLevelRef, micLevelRef, ttsLevelRef, passiveMicLevelRef]);
 
   const [step, setStep] = useState<FlowStep>("idle");
+
+  // Open/close a passive mic stream during voice-interactive steps
+  // so the orb visualizer responds to the user's voice
+  const needsPassiveMic = ["confirm", "ask-email", "ask-voice-msg", "done", "error"].includes(step);
+  useEffect(() => {
+    if (!needsPassiveMic) {
+      setPassiveMicStream((prev) => {
+        prev?.getTracks().forEach((t) => t.stop());
+        return null;
+      });
+      return;
+    }
+    let cancelled = false;
+    navigator.mediaDevices
+      .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } })
+      .then((stream) => {
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        setPassiveMicStream(stream);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      setPassiveMicStream((prev) => {
+        prev?.getTracks().forEach((t) => t.stop());
+        return null;
+      });
+    };
+  }, [needsPassiveMic]);
+
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<Id<"voiceSessions"> | null>(null);
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -166,14 +201,73 @@ export default function VoiceHome() {
       : "skip",
   );
   const [forceAskEmail, setForceAskEmail] = useState(false);
+  const [showEmailTyping, setShowEmailTyping] = useState(false);
 
-  // Auto-play readback
+  // Derive Convex HTTP site URL for streaming TTS and email parsing
+  const convexSiteUrl = (import.meta.env.VITE_CONVEX_URL ?? "").replace(/\.convex\.cloud\/?$/, ".convex.site");
+
+  // Voice email capture — active during ask-email step
+  const voiceEmail = useVoiceEmail({
+    enabled: step === "ask-email" && !showEmailTyping,
+    convexSiteUrl,
+  });
+
+  // When voice email is parsed, auto-fill the email field for confirmation
+  useEffect(() => {
+    if (voiceEmail.parsedEmail && step === "ask-email") {
+      setRecipientEmail(voiceEmail.parsedEmail);
+    }
+  }, [voiceEmail.parsedEmail, step]);
+
+  // Auto-play readback via streaming ElevenLabs TTS (fast path)
+  // Falls back to stored readbackUrl for Replay button
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hasPlayedRef = useRef<string | null>(null);
+
+  // Track whether ElevenLabs TTS succeeded so we know whether to fall back to stored audio
+  const elevenLabsPlayedRef = useRef(false);
+
+  // Primary: fetch ElevenLabs TTS as soon as readbackText is available (faster than stored OpenAI audio)
+  useEffect(() => {
+    const text = session?.readbackText;
+    if (!text || text === hasPlayedRef.current || !convexSiteUrl) return;
+    hasPlayedRef.current = text;
+    elevenLabsPlayedRef.current = false;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${convexSiteUrl}/api/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const blobUrl = URL.createObjectURL(blob);
+        const audio = new Audio(blobUrl);
+        audioRef.current = audio;
+        setTtsAudioEl(audio);
+        elevenLabsPlayedRef.current = true;
+        audio.addEventListener("ended", () => { setTtsAudioEl(null); URL.revokeObjectURL(blobUrl); });
+        audio.addEventListener("pause", () => setTtsAudioEl(null));
+        audio.play().catch(() => {});
+      } catch {
+        // ElevenLabs failed — fallback to stored audio will trigger below
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [session?.readbackText, convexSiteUrl]);
+
+  // Fallback: if ElevenLabs TTS didn't play and stored readbackUrl becomes available, use it
   useEffect(() => {
     const url = session?.readbackUrl;
-    if (!url || url === hasPlayedRef.current) return;
-    hasPlayedRef.current = url;
+    if (!url || elevenLabsPlayedRef.current) return;
+    // Only play if we haven't already played via ElevenLabs
+    if (audioRef.current && audioRef.current.currentTime > 0) return;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
     const audio = new Audio(url);
     audio.crossOrigin = "anonymous";
@@ -182,7 +276,6 @@ export default function VoiceHome() {
     audio.addEventListener("ended", () => setTtsAudioEl(null));
     audio.addEventListener("pause", () => setTtsAudioEl(null));
     audio.play().catch(() => {});
-    return () => { audio.pause(); audio.src = ""; setTtsAudioEl(null); };
   }, [session?.readbackUrl]);
 
   useEffect(() => {
@@ -219,6 +312,8 @@ export default function VoiceHome() {
     setCreatedRuleId(null);
     setCreatedRecipientName("");
     setForceAskEmail(false);
+    setShowEmailTyping(false);
+    voiceEmail.retry();
     setProcessingSubStep("uploading");
     hasPlayedRef.current = null;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
@@ -249,7 +344,9 @@ export default function VoiceHome() {
         body: blob,
       });
       const { storageId } = (await result.json()) as { storageId: Id<"_storage"> };
-      const id = await createSession({ privyId: user.id, audioStorageId: storageId, selectedToken });
+      // Pass the interim transcript from auto-stop detection for speculative parsing
+      const preTranscript = autoStop.interimTranscript || undefined;
+      const id = await createSession({ privyId: user.id, audioStorageId: storageId, selectedToken, preTranscript });
       setSessionId(id);
       setProcessingSubStep("transcribing");
     } catch (e) {
@@ -389,6 +486,8 @@ export default function VoiceHome() {
     setCreatedRecipientName("");
     setErrorMessage("");
     setForceAskEmail(false);
+    setShowEmailTyping(false);
+    voiceEmail.retry();
     setProcessingSubStep("uploading");
     hasPlayedRef.current = null;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
@@ -412,33 +511,40 @@ export default function VoiceHome() {
   if (step === "idle") parsedIntentRef.current = null;
   const parsedIntent = parsedIntentRef.current;
 
-  // Voice commands — listen for spoken actions during confirm/prompt steps
-  // Only enable after TTS readback finishes to prevent it from being picked up as a command
-  const ttsFinished = !ttsAudioEl;
-  useVoiceCommands({
-    enabled: step === "confirm" && !!parsedIntent && !parsedIntent.error && ttsFinished,
-    commands: [
-      { keywords: ["approve", "confirm", "proceed"], action: () => handleApprove() },
-      { keywords: ["cancel", "nevermind", "never mind"], action: () => resetFlow() },
-    ],
-  });
-
-  useVoiceCommands({
-    enabled: step === "ask-voice-msg",
-    commands: [
-      { keywords: ["record", "sure"], action: () => handleRecordMessage() },
-      { keywords: ["skip", "pass"], action: () => handleFinalize() },
-    ],
-  });
-
-  useVoiceCommands({
-    enabled: step === "error" || step === "done",
-    commands: [
-      { keywords: ["try again", "retry"], action: () => resetFlow() },
-    ],
+  // Unified conversational voice listener — single SpeechRecognition instance
+  // stays alive across all post-recording steps, no restart delays between steps
+  useConversationListener({
+    enabled: (
+      ["confirm", "ask-voice-msg", "done", "error"].includes(step)
+      || (step === "ask-email" && !!voiceEmail.parsedEmail && !showEmailTyping)
+    ) && (step !== "confirm" || (!!parsedIntent && !parsedIntent.error)),
+    currentStep: step === "ask-email" ? "ask-email-confirm" : step,
+    ttsPlaying: !!ttsAudioEl,
+    commandMap: {
+      confirm: [
+        { keywords: ["approve", "confirm", "proceed"], action: () => handleApprove() },
+        { keywords: ["cancel", "nevermind", "never mind"], action: () => resetFlow() },
+      ],
+      "ask-email-confirm": [
+        { keywords: ["yes", "correct", "confirm"], action: () => { setRecipientEmail(voiceEmail.parsedEmail!); setStep("ask-voice-msg"); } },
+        { keywords: ["try again", "retry", "no"], action: () => { voiceEmail.retry(); setRecipientEmail(""); } },
+      ],
+      "ask-voice-msg": [
+        { keywords: ["record", "sure"], action: () => handleRecordMessage() },
+        { keywords: ["skip", "pass"], action: () => handleFinalize() },
+      ],
+      error: [
+        { keywords: ["try again", "retry"], action: () => resetFlow() },
+      ],
+      done: [
+        { keywords: ["new payment", "again", "try again"], action: () => resetFlow() },
+      ],
+    },
   });
 
   const isOrbActive = step === "recording" || step === "processing";
+  // Steps where voice commands are listening — show a compact orb as visual indicator
+  const isVoiceListening = ["confirm", "ask-email", "ask-voice-msg", "done", "error"].includes(step);
   const selectedTokenInfo = useMemo(() => allTokens.find((t) => t.symbol === selectedToken), [allTokens, selectedToken]);
 
   // 6 visible tokens + Add + Customize = 8 orbit slots
@@ -671,6 +777,20 @@ export default function VoiceHome() {
           </>
         )}
 
+        {/* === Listening orb — shown during all voice-interactive steps === */}
+        {isVoiceListening && (
+          <div className="flex flex-col items-center mb-2" style={{ animation: "fade-in-up 0.3s ease-out both" }}>
+            <AudioVisualizer
+              levelRef={audioLevelRef}
+              active
+              recording={false}
+              size={100}
+              disabled={false}
+              waiting={false}
+            />
+          </div>
+        )}
+
         {/* === CONFIRM: Intent card === */}
         {step === "confirm" && parsedIntent && !parsedIntent.error && (
           <div className="glass-card w-full max-w-sm mx-auto space-y-4 p-6 text-sm" style={{ animation: "fade-in-up 0.4s ease-out both" }}>
@@ -774,22 +894,131 @@ export default function VoiceHome() {
 
         {/* === ASK EMAIL === */}
         {step === "ask-email" && (
-          <form onSubmit={handleEmailSubmit} className="glass-card w-full space-y-3 p-5">
+          <div className="glass-card w-full space-y-4 p-5" style={{ animation: "fade-in-up 0.4s ease-out both" }}>
             <div className="text-sm font-medium">What's {parsedIntent?.recipient?.name}'s email?</div>
-            <p className="text-xs text-white/40">We'll send them a claim link so they can receive the funds.</p>
-            <input
-              type="email"
-              required
-              value={recipientEmail}
-              onChange={(e) => setRecipientEmail(e.target.value)}
-              placeholder="mama@gmail.com"
-              className="glass-input"
-            />
-            <div className="flex gap-3">
-              <button type="submit" className="btn-primary">Continue</button>
-              <button type="button" onClick={resetFlow} className="btn-secondary">Cancel</button>
-            </div>
-          </form>
+
+            {/* Voice email mode (default) */}
+            {!showEmailTyping && !voiceEmail.parsedEmail && (
+              <div className="space-y-3">
+                <p className="text-xs text-white/40">
+                  Say the email address, like "mama at gmail dot com"
+                </p>
+
+                {/* Live transcript */}
+                {voiceEmail.spokenText && (
+                  <p className="rounded-lg bg-white/[0.03] px-4 py-3 text-[13px] text-white/50 italic text-center">
+                    "{voiceEmail.spokenText}"
+                  </p>
+                )}
+
+                {/* Processing indicator */}
+                {voiceEmail.isProcessing && (
+                  <p className="text-xs text-primary/70 text-center animate-pulse">
+                    Parsing email...
+                  </p>
+                )}
+
+                {/* Mic listening indicator */}
+                {!voiceEmail.spokenText && !voiceEmail.isProcessing && voiceEmail.supported && (
+                  <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/25">
+                    <svg className="h-3 w-3 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                    </svg>
+                    Listening...
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowEmailTyping(true)}
+                  className="text-[11px] text-white/30 underline underline-offset-2 hover:text-white/50 block mx-auto"
+                >
+                  Or type it instead
+                </button>
+              </div>
+            )}
+
+            {/* Parsed email confirmation */}
+            {voiceEmail.parsedEmail && !showEmailTyping && (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 text-center">
+                  <p className="text-xs text-white/40 mb-1">Did you mean:</p>
+                  <p className="text-sm font-medium text-white/90">{voiceEmail.parsedEmail}</p>
+                </div>
+                <div className="flex justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecipientEmail(voiceEmail.parsedEmail!);
+                      setStep("ask-voice-msg");
+                    }}
+                    className="btn-primary px-6"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      voiceEmail.retry();
+                      setRecipientEmail("");
+                    }}
+                    className="btn-secondary"
+                  >
+                    Try again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEmailTyping(true);
+                      setRecipientEmail("");
+                    }}
+                    className="btn-secondary"
+                  >
+                    Type it
+                  </button>
+                </div>
+                <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/25">
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                  </svg>
+                  Say "Yes" or "Try again"
+                </div>
+              </div>
+            )}
+
+            {/* Typing fallback */}
+            {showEmailTyping && (
+              <form onSubmit={handleEmailSubmit} className="space-y-3">
+                <input
+                  type="email"
+                  required
+                  autoFocus
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  placeholder="mama@gmail.com"
+                  className="glass-input"
+                />
+                <div className="flex gap-3">
+                  <button type="submit" className="btn-primary">Continue</button>
+                  <button type="button" onClick={resetFlow} className="btn-secondary">Cancel</button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowEmailTyping(false); voiceEmail.retry(); }}
+                  className="text-[11px] text-white/30 underline underline-offset-2 hover:text-white/50 block mx-auto"
+                >
+                  Use voice instead
+                </button>
+              </form>
+            )}
+
+            {/* Cancel button when in voice mode */}
+            {!showEmailTyping && !voiceEmail.parsedEmail && (
+              <div className="flex justify-center">
+                <button type="button" onClick={resetFlow} className="btn-secondary text-xs">Cancel</button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* === VOICE MESSAGE PROMPT === */}

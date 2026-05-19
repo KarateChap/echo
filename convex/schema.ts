@@ -39,11 +39,14 @@ export default defineSchema({
     })),
     status: v.union(v.literal("pending"), v.literal("active"), v.literal("paused"), v.literal("cancelled"), v.literal("completed")),
     voiceMessageId: v.optional(v.id("voiceMessages")),
-    fundingTxHash: v.optional(v.string()),
+    fundingTxHash: v.optional(v.string()), // legacy custodial path
+    delegationTxHash: v.optional(v.string()), // EIP-7702 delegation tx
+    ownerWalletAddress: v.optional(v.string()), // user's EOA for 7702 executeTransfer
+    revocationTxHash: v.optional(v.string()), // on-chain revocation tx
     nextRunAt: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
     totalOccurrences: v.optional(v.number()),
-    totalFunded: v.optional(v.number()),
+    totalFunded: v.optional(v.number()), // legacy custodial path
     executionCount: v.optional(v.number()),
   })
     .index("by_owner", ["ownerId"])
@@ -105,6 +108,9 @@ export default defineSchema({
     transcript: v.optional(v.string()),
     intent: v.optional(v.string()),
     readbackStorageId: v.optional(v.id("_storage")),
+    readbackText: v.optional(v.string()),
+    preTranscript: v.optional(v.string()),
+    speculativeParseDone: v.optional(v.boolean()),
     status: v.union(
       v.literal("recording"),
       v.literal("transcribing"),
