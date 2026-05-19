@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useMutation, useQuery } from "convex/react";
 import { Link } from "react-router-dom";
@@ -73,10 +73,22 @@ export default function VoiceHome() {
     isCustom: true,
     customTokenId: t._id,
   }));
-  const allTokens = [...BUILTIN_TOKENS, ...customTokens];
+  const allTokens = useMemo(() => [...BUILTIN_TOKENS, ...customTokens], [customTokens]);
   const { visibleTokens, hiddenTokens, hideToken, showToken, removeToken, MAX_VISIBLE } = useVisibleTokens(allTokens);
 
   const { balances, loading: balanceLoading } = useTokenBalances(wallet?.address, customTokens);
+  const balanceMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of balances) {
+      const key = `${b.token.symbol}:${b.token.address}`;
+      const isEth = b.token.symbol === "ETH";
+      map.set(key, parseFloat(b.formatted).toLocaleString(undefined, {
+        minimumFractionDigits: isEth ? 4 : 2,
+        maximumFractionDigits: isEth ? 4 : 2,
+      }));
+    }
+    return map;
+  }, [balances]);
   const { unseenActivity, unseenRules } = useUnseenCounts();
   const addCustomToken = useMutation(api.customTokens.add);
   const removeCustomToken = useMutation(api.customTokens.remove);
@@ -176,7 +188,7 @@ export default function VoiceHome() {
     }
   }, [session?.status, session?.intent, step]);
 
-  async function handleTokenTap(symbol: string) {
+  const handleTokenTap = useCallback(async (symbol: string) => {
     if (!user) return;
     setSelectedToken(symbol);
     setSessionId(null);
@@ -190,12 +202,17 @@ export default function VoiceHome() {
     setTtsAudioEl(null);
     setStep("recording");
     await recorder.startRecording();
-  }
+  }, [user, recorder]);
 
   async function handleStopRecording() {
     if (!user) return;
     const blob = await recorder.stopRecording();
     if (!blob) return;
+    if (!selectedToken) {
+      setErrorMessage("No token selected. Please tap a token first.");
+      setStep("error");
+      return;
+    }
     setStep("processing");
     setProcessingSubStep("uploading");
     try {
@@ -206,7 +223,7 @@ export default function VoiceHome() {
         body: blob,
       });
       const { storageId } = (await result.json()) as { storageId: Id<"_storage"> };
-      const id = await createSession({ privyId: user.id, audioStorageId: storageId, selectedToken: selectedToken ?? undefined });
+      const id = await createSession({ privyId: user.id, audioStorageId: storageId, selectedToken });
       setSessionId(id);
       setProcessingSubStep("transcribing");
     } catch (e) {
@@ -253,6 +270,13 @@ export default function VoiceHome() {
     try {
       const intent = JSON.parse(session.intent);
 
+      const resolvedToken = selectedToken ?? intent.token;
+      if (!resolvedToken) {
+        setErrorMessage("Token could not be determined. Please try again.");
+        setStep("error");
+        return;
+      }
+
       // Create the rule (triggers executePayment + sendClaimEmail)
       const result = await createRule({
         privyId: user.id,
@@ -261,7 +285,7 @@ export default function VoiceHome() {
         recipientHint: intent.recipient?.hint,
         kind: intent.kind,
         amountUsdc: intent.amount ?? intent.amountUsdc ?? 0,
-        token: selectedToken ?? intent.token ?? "USDC",
+        token: resolvedToken,
         schedule: intent.schedule ?? undefined,
         condition: intent.condition ?? undefined,
       });
@@ -330,11 +354,11 @@ export default function VoiceHome() {
   const parsedIntent = parsedIntentRef.current;
 
   const isOrbActive = step === "recording" || step === "processing";
-  const selectedTokenInfo = allTokens.find((t) => t.symbol === selectedToken);
+  const selectedTokenInfo = useMemo(() => allTokens.find((t) => t.symbol === selectedToken), [allTokens, selectedToken]);
 
   // 6 visible tokens + Add + Customize = 8 orbit slots
   const orbitSlots = visibleTokens.length + 2; // +1 Add, +1 Customize
-  const positions = circlePositions(orbitSlots, CONTAINER, ORBIT_RADIUS);
+  const positions = useMemo(() => circlePositions(orbitSlots, CONTAINER, ORBIT_RADIUS), [orbitSlots]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const drag = useDragToCenter({
@@ -345,18 +369,20 @@ export default function VoiceHome() {
   });
 
   // Find the dragged token info for ghost clone rendering
-  const draggedTokenInfo = drag.isDragging || drag.phase === "snapping" || drag.phase === "returning"
-    ? allTokens.find((t) => t.symbol === drag.draggedToken)
-    : null;
-  const draggedTokenBal = draggedTokenInfo
-    ? balances.find((b) => b.token.symbol === draggedTokenInfo.symbol && b.token.address === draggedTokenInfo.address)
-    : null;
-  const draggedFormatted = draggedTokenBal
-    ? parseFloat(draggedTokenBal.formatted).toLocaleString(undefined, {
-        minimumFractionDigits: draggedTokenInfo?.symbol === "ETH" ? 4 : 2,
-        maximumFractionDigits: draggedTokenInfo?.symbol === "ETH" ? 4 : 2,
-      })
-    : "0.00";
+  const dragActive = drag.isDragging || drag.phase === "snapping" || drag.phase === "returning";
+  const draggedTokenInfo = useMemo(
+    () => dragActive ? allTokens.find((t) => t.symbol === drag.draggedToken) : null,
+    [dragActive, drag.draggedToken, allTokens],
+  );
+  const draggedFormatted = useMemo(() => {
+    if (!draggedTokenInfo) return "0.00";
+    const bal = balances.find((b) => b.token.symbol === draggedTokenInfo.symbol && b.token.address === draggedTokenInfo.address);
+    if (!bal) return "0.00";
+    return parseFloat(bal.formatted).toLocaleString(undefined, {
+      minimumFractionDigits: draggedTokenInfo.symbol === "ETH" ? 4 : 2,
+      maximumFractionDigits: draggedTokenInfo.symbol === "ETH" ? 4 : 2,
+    });
+  }, [draggedTokenInfo, balances]);
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col px-6 py-6">
@@ -396,13 +422,7 @@ export default function VoiceHome() {
 
               {/* Token badges orbiting the orb */}
               {visibleTokens.map((token, i) => {
-                const bal = balances.find((b) => b.token.symbol === token.symbol && b.token.address === token.address);
-                const formatted = bal
-                  ? parseFloat(bal.formatted).toLocaleString(undefined, {
-                      minimumFractionDigits: token.symbol === "ETH" ? 4 : 2,
-                      maximumFractionDigits: token.symbol === "ETH" ? 4 : 2,
-                    })
-                  : balanceLoading ? "…" : "0.00";
+                const formatted = balanceMap.get(`${token.symbol}:${token.address}`) ?? (balanceLoading ? "…" : "0.00");
 
                 const isSelected = selectedToken === token.symbol;
                 const pos = positions[i];
@@ -577,7 +597,7 @@ export default function VoiceHome() {
               <div className="min-w-0">
                 <div className="text-xl font-bold tracking-tight">
                   {(parsedIntent.amount ?? parsedIntent.amountUsdc)?.toLocaleString()}{" "}
-                  <span className="text-white/70">{selectedToken ?? parsedIntent.token ?? "USDC"}</span>
+                  <span className="text-white/70">{selectedToken ?? parsedIntent.token ?? "Unknown"}</span>
                 </div>
                 <div className="mt-0.5 text-[13px] text-white/45">
                   to <span className="font-medium text-white/80">{parsedIntent.recipient?.name}</span>
