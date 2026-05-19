@@ -37,6 +37,7 @@ jobs:
           VITE_MORPH_HOODI_CHAIN_ID: ${{ secrets.VITE_MORPH_HOODI_CHAIN_ID }}
           VITE_MORPH_HOODI_EXPLORER: ${{ secrets.VITE_MORPH_HOODI_EXPLORER }}
           VITE_USDC_ADDRESS: ${{ secrets.VITE_USDC_ADDRESS }}
+          VITE_AGENT_WALLET_ADDRESS: ${{ secrets.VITE_AGENT_WALLET_ADDRESS }}
         run: npm run build
 
       - uses: aws-actions/configure-aws-credentials@v4
