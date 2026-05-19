@@ -29,7 +29,7 @@ export const upsertUser = mutation({
         email: args.email,
         displayName: args.displayName,
       };
-      if (args.walletAddress) {
+      if (args.walletAddress && !existing.walletAddress) {
         patch.walletAddress = args.walletAddress;
       }
       await ctx.db.patch(existing._id, patch);

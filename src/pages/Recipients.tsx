@@ -5,18 +5,13 @@ import { Link } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
-function truncateAddress(addr: string) {
-  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
-}
 
 type RecipientForm = {
-  displayName: string;
   contactEmail: string;
   relationship: string;
-  walletAddress: string;
 };
 
-const emptyForm: RecipientForm = { displayName: "", contactEmail: "", relationship: "", walletAddress: "" };
+const emptyForm: RecipientForm = { contactEmail: "", relationship: "" };
 
 export default function Recipients() {
   const { user } = usePrivy();
@@ -29,7 +24,6 @@ export default function Recipients() {
   const removeRecipient = useMutation(api.recipients.remove);
 
   const [search, setSearch] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal state
   const [showForm, setShowForm] = useState(false);
@@ -53,12 +47,6 @@ export default function Recipients() {
     );
   }, [recipients, search]);
 
-  function copyWallet(id: string, address: string) {
-    navigator.clipboard.writeText(address);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1500);
-  }
-
   function openAdd() {
     setEditingId(null);
     setForm(emptyForm);
@@ -68,10 +56,8 @@ export default function Recipients() {
   function openEdit(r: NonNullable<typeof recipients>[number]) {
     setEditingId(r._id);
     setForm({
-      displayName: r.displayName,
       contactEmail: r.contactEmail ?? "",
-      relationship: r.relationship ?? "",
-      walletAddress: r.walletAddress ?? "",
+      relationship: r.relationship ?? r.displayName,
     });
     setShowForm(true);
   }
@@ -83,24 +69,22 @@ export default function Recipients() {
   }
 
   async function handleSave() {
-    if (!user || !form.displayName.trim()) return;
+    if (!user || !form.relationship.trim()) return;
     setSaving(true);
     try {
       if (editingId) {
         await updateRecipient({
           recipientId: editingId,
-          displayName: form.displayName.trim(),
+          displayName: form.relationship.trim(),
           contactEmail: form.contactEmail.trim() || undefined,
-          relationship: form.relationship.trim() || undefined,
-          walletAddress: form.walletAddress.trim() || undefined,
+          relationship: form.relationship.trim(),
         });
       } else {
         await addRecipient({
           privyId: user.id,
-          displayName: form.displayName.trim(),
+          displayName: form.relationship.trim(),
           contactEmail: form.contactEmail.trim() || undefined,
-          relationship: form.relationship.trim() || undefined,
-          walletAddress: form.walletAddress.trim() || undefined,
+          relationship: form.relationship.trim(),
         });
       }
       closeForm();
@@ -209,23 +193,6 @@ export default function Recipients() {
                     {r.contactEmail ?? <span className="italic text-white/30">No email</span>}
                   </div>
 
-                  {r.walletAddress && (
-                    <button
-                      onClick={() => copyWallet(r._id, r.walletAddress!)}
-                      className="flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 font-mono text-[11px] text-white/40 transition hover:bg-white/10 active:scale-95"
-                    >
-                      <span>{truncateAddress(r.walletAddress)}</span>
-                      {copiedId === r._id ? (
-                        <svg className="h-3 w-3 shrink-0 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="h-3 w-3 shrink-0 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      )}
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
@@ -244,12 +211,12 @@ export default function Recipients() {
 
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-white/50">Name *</label>
+                <label className="mb-1 block text-xs text-white/50">Relationship *</label>
                 <input
                   type="text"
-                  value={form.displayName}
-                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                  placeholder="e.g. Mama"
+                  value={form.relationship}
+                  onChange={(e) => setForm((f) => ({ ...f, relationship: e.target.value }))}
+                  placeholder="e.g. Mama, Wife, Kuya"
                   className="glass-input w-full text-sm"
                   autoFocus
                 />
@@ -264,26 +231,6 @@ export default function Recipients() {
                   className="glass-input w-full text-sm"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs text-white/50">Relationship</label>
-                <input
-                  type="text"
-                  value={form.relationship}
-                  onChange={(e) => setForm((f) => ({ ...f, relationship: e.target.value }))}
-                  placeholder="e.g. Mother, Wife, Friend"
-                  className="glass-input w-full text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-white/50">Wallet Address</label>
-                <input
-                  type="text"
-                  value={form.walletAddress}
-                  onChange={(e) => setForm((f) => ({ ...f, walletAddress: e.target.value }))}
-                  placeholder="0x..."
-                  className="glass-input w-full font-mono text-sm"
-                />
-              </div>
             </div>
 
             <div className="mt-5 flex gap-3">
@@ -295,7 +242,7 @@ export default function Recipients() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !form.displayName.trim()}
+                disabled={saving || !form.relationship.trim()}
                 className="flex-1 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-purple-500 disabled:opacity-40"
               >
                 {saving ? "Saving…" : editingId ? "Save Changes" : "Add Recipient"}

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePrivy, useWallets, useCreateWallet } from "@privy-io/react-auth";
-import { useQuery, useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
 /** Truncate an email or wallet for display */
@@ -23,14 +23,23 @@ export default function Claim() {
   const upsertUser = useMutation(api.users.upsertUser);
   const { createWallet } = useCreateWallet();
 
-  // Resolve wallet address from multiple sources
+  // DB user record is the source of truth for wallet address
+  const dbUser = useQuery(
+    api.users.getByPrivyId,
+    user?.id ? { privyId: user.id } : "skip",
+  );
+
+  // Resolve local Privy wallet as fallback for first-time users
   const privyWallet = wallets.find((w) => w.walletClientType === "privy");
   const anyWallet = privyWallet ?? wallets[0];
-  const walletAddress =
+  const localWalletAddress =
     anyWallet?.address ??
     (user?.linkedAccounts?.find(
       (a): a is Extract<typeof a, { type: "wallet" }> => a.type === "wallet",
     ) as { address?: string } | undefined)?.address;
+
+  // Prefer DB wallet (consistent across devices), fall back to local Privy wallet
+  const walletAddress = dbUser?.walletAddress ?? localWalletAddress;
 
   // Upsert user record whenever auth or wallet changes
   useEffect(() => {
@@ -42,7 +51,7 @@ export default function Claim() {
     });
   }, [ready, authenticated, user, walletAddress, upsertUser]);
 
-  // Trigger embedded wallet creation if Privy auto-create didn't fire
+  // Trigger embedded wallet creation only if no wallet exists anywhere
   useEffect(() => {
     if (!ready || !authenticated || walletAddress) return;
     createWallet().catch((err) => {
