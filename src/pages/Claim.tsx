@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
@@ -18,7 +18,29 @@ function truncateSender(name: string) {
 
 export default function Claim() {
   const { token } = useParams<{ token: string }>();
-  const { ready, authenticated, login } = usePrivy();
+  const { ready, authenticated, login, user } = usePrivy();
+  const { wallets } = useWallets();
+  const upsertUser = useMutation(api.users.upsertUser);
+
+  // Try multiple sources for the wallet address
+  const privyWallet = wallets.find((w) => w.walletClientType === "privy");
+  const anyWallet = privyWallet ?? wallets[0];
+  const walletAddress =
+    anyWallet?.address ??
+    (user?.linkedAccounts?.find(
+      (a): a is Extract<typeof a, { type: "wallet" }> => a.type === "wallet",
+    ) as { address?: string } | undefined)?.address;
+
+  // Ensure user record is created when claiming (Claim page isn't wrapped in RequireAuth)
+  useEffect(() => {
+    if (!ready || !authenticated || !user) return;
+    void upsertUser({
+      privyId: user.id,
+      walletAddress: walletAddress ?? undefined,
+      email: user.email?.address,
+    });
+  }, [ready, authenticated, user, walletAddress, upsertUser]);
+
   const claim = useQuery(
     api.claims.getByToken,
     token ? { token } : "skip",

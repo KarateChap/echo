@@ -18,16 +18,25 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const upsertUser = useMutation(api.users.upsertUser);
-  const wallet = wallets.find((w) => w.walletClientType === "privy");
 
+  // Try multiple sources for the wallet address (Privy may expose it differently)
+  const privyWallet = wallets.find((w) => w.walletClientType === "privy");
+  const anyWallet = privyWallet ?? wallets[0];
+  const walletAddress =
+    anyWallet?.address ??
+    (user?.linkedAccounts?.find(
+      (a): a is Extract<typeof a, { type: "wallet" }> => a.type === "wallet",
+    ) as { address?: string } | undefined)?.address;
+
+  // Phase 1: Create user record immediately on auth (even without wallet)
   useEffect(() => {
-    if (!ready || !authenticated || !user || !wallet) return;
+    if (!ready || !authenticated || !user) return;
     void upsertUser({
       privyId: user.id,
-      walletAddress: wallet.address,
+      walletAddress: walletAddress ?? undefined,
       email: user.email?.address,
     });
-  }, [ready, authenticated, user, wallet, upsertUser]);
+  }, [ready, authenticated, user, walletAddress, upsertUser]);
 
   if (!ready) return <div className="grid h-full place-items-center text-sm opacity-60">Loading…</div>;
   if (!authenticated) return <Navigate to="/" replace />;

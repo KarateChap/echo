@@ -13,7 +13,7 @@ async function linkWalletToRecipients(ctx: MutationCtx, email: string, walletAdd
 export const upsertUser = mutation({
   args: {
     privyId: v.string(),
-    walletAddress: v.string(),
+    walletAddress: v.optional(v.string()),
     email: v.optional(v.string()),
     displayName: v.optional(v.string()),
   },
@@ -24,14 +24,18 @@ export const upsertUser = mutation({
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        walletAddress: args.walletAddress,
+      // Only overwrite walletAddress if a new one is provided
+      const patch: Record<string, unknown> = {
         email: args.email,
         displayName: args.displayName,
-      });
+      };
+      if (args.walletAddress) {
+        patch.walletAddress = args.walletAddress;
+      }
+      await ctx.db.patch(existing._id, patch);
       // Link wallet to any recipient rows matching this email
-      if (args.email) {
-        await linkWalletToRecipients(ctx, args.email, args.walletAddress);
+      if (args.email && (args.walletAddress ?? existing.walletAddress)) {
+        await linkWalletToRecipients(ctx, args.email, (args.walletAddress ?? existing.walletAddress)!);
       }
       return existing._id;
     }
@@ -44,7 +48,7 @@ export const upsertUser = mutation({
     });
 
     // Link wallet to any recipient rows matching this email
-    if (args.email) {
+    if (args.email && args.walletAddress) {
       await linkWalletToRecipients(ctx, args.email, args.walletAddress);
     }
 
