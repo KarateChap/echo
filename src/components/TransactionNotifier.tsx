@@ -85,24 +85,29 @@ export default function TransactionNotifier() {
     if (notifiable.length === 0) return;
 
     const newToasts: Toast[] = notifiable.map((tx) => {
+      const isRefund = tx.error === "REFUND";
       const isSent = tx.isSender;
       const failed = tx.status === "failed";
-      const isReceived = !failed && !isSent;
+      const isReceived = !failed && !isSent && !isRefund;
       return {
         id: tx._id,
-        message: failed
-          ? "Payment Failed"
-          : isSent
-            ? "Payment Sent"
-            : "Payment Received",
-        detail: failed
-          ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
-          : isSent
+        message: isRefund
+          ? "Rule Cancelled \u2014 Refund"
+          : failed
+            ? "Payment Failed"
+            : isSent
+              ? "Payment Sent"
+              : "Payment Received",
+        detail: isRefund
+          ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} returned to your wallet`
+          : failed
             ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
-            : `from ${tx.senderName}`,
-        type: failed ? "failed" : isSent ? "sent" : "received",
-        amount: isReceived ? tx.amountUsdc : undefined,
-        token: isReceived ? (tx.token ?? "Unknown") : undefined,
+            : isSent
+              ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
+              : `from ${tx.senderName}`,
+        type: isRefund ? "received" : failed ? "failed" : isSent ? "sent" : "received",
+        amount: (isRefund || isReceived) ? tx.amountUsdc : undefined,
+        token: (isRefund || isReceived) ? (tx.token ?? "Unknown") : undefined,
       };
     });
 
