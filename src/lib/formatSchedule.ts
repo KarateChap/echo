@@ -32,6 +32,16 @@ function formatScheduleBase(schedule: { kind: string; value: string }) {
     return `Every day at ${h12}${mStr} ${ampm}`;
   }
   if (schedule.kind === "biweekly") return `Every other ${schedule.value}`;
+  if (schedule.kind === "seconds") {
+    const n = parseInt(schedule.value);
+    return n === 1 ? "Every second" : `Every ${n} seconds`;
+  }
+  if (schedule.kind === "yearly") {
+    const [month, day] = schedule.value.split("-").map(Number);
+    const date = new Date(2000, month - 1, day);
+    const monthName = date.toLocaleDateString("en-US", { month: "long" });
+    return `Yearly on ${monthName} ${day}${ordinalSuffix(String(day))}`;
+  }
   if (schedule.kind === "once") {
     const d = new Date(schedule.value + "T00:00:00");
     if (!isNaN(d.getTime())) {

@@ -17,7 +17,7 @@ Output ONLY valid JSON matching this schema — no markdown, no explanation:
   "recipient": { "name": string, "hint": string },
   "amount": number,
   "token": "USDC" | "USDT" | "ETH" | "HTT",
-  "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once", "value": string } | null,
+  "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once" | "seconds" | "yearly", "value": string } | null,
   "condition": { "walletBelowUsdc": number, "topUpUsdc": number } | null,
   "durationMinutes": number | null,
   "totalOccurrences": number | null
@@ -105,6 +105,16 @@ SCHEDULE & KIND RULES
    - Triggered by: "every two weeks", "every other week", "every other Friday", "biweekly"
    - value is the day name. Default "Friday" if no day specified.
 
+6b. RECURRING YEARLY: User wants to send every year on a specific date (birthday, anniversary, holiday).
+   → kind="recurring", schedule={ kind:"yearly", value:"MM-DD" }
+   - "every birthday on Feb 1" / "every year on February 1" → { kind:"yearly", value:"02-01" }
+   - "every Christmas" → { kind:"yearly", value:"12-25" }
+   - "every anniversary on March 15" → { kind:"yearly", value:"03-15" }
+   - "every New Year" → { kind:"yearly", value:"01-01" }
+   - value is MM-DD format (zero-padded)
+   - Triggered by: "every birthday", "every year", "yearly", "annually", "every anniversary", named holidays
+   - IMPORTANT: If the user says "her birthday is <date>" or mentions a specific annual date + "every birthday/year", use yearly NOT monthly.
+
 7. RECURRING CRON (complex): Multiple days per month or complex patterns.
    → kind="recurring", schedule={ kind:"cron", value:"<5-field cron>" }
    - "every 1st and 15th" → { kind:"cron", value:"0 9 1,15 * *" }
@@ -117,8 +127,17 @@ SCHEDULE & KIND RULES
    - "every 30 minutes" / "every half hour" → { kind:"cron", value:"*/30 * * * *" }
    - "every 2 hours" → { kind:"cron", value:"0 */2 * * *" }
    - "every hour" → { kind:"cron", value:"0 * * * *" }
-   The minimum supported interval is 1 minute.
    If the user also specifies a duration ("for the next N minutes/hours"), set durationMinutes accordingly.
+
+7c. RECURRING SUB-MINUTE (seconds): User wants to send every N seconds.
+   → kind="recurring", schedule={ kind:"seconds", value:"<N>" }
+   - "every 5 seconds" → { kind:"seconds", value:"5" }
+   - "every 10 seconds" → { kind:"seconds", value:"10" }
+   - "every second" / "per second" → { kind:"seconds", value:"1" }
+   - "every 30 seconds" / "every half minute" → { kind:"seconds", value:"30" }
+   - value is the number of seconds as a string.
+   - If the user specifies a duration, convert to durationMinutes (e.g. "for 2 minutes" → durationMinutes=2).
+   - Calculate totalOccurrences = durationMinutes × 60 ÷ seconds (or from explicit count).
 
 8. CONDITIONAL: User sets a balance threshold to auto-top-up.
    → kind="conditional", schedule=null, condition={ walletBelowUsdc:<threshold>, topUpUsdc:<amount> }
@@ -162,6 +181,12 @@ BIWEEKLY:
 - "Send 5000 every two weeks kay mama for 3 months" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"biweekly","value":"Friday"},"condition":null,"durationMinutes":null,"totalOccurrences":6}
 - "Every other Friday, padala 3000 kay papa 4 times" → {"kind":"recurring","recipient":{"name":"Papa","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"biweekly","value":"Friday"},"condition":null,"durationMinutes":null,"totalOccurrences":4}
 
+YEARLY:
+- "My wife's birthday is February 1. Send 1 USDT every birthday for 5 years" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDT","schedule":{"kind":"yearly","value":"02-01"},"condition":null,"durationMinutes":null,"totalOccurrences":5}
+- "Send mama 1000 every Christmas for 3 years" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":1000,"token":"USDC","schedule":{"kind":"yearly","value":"12-25"},"condition":null,"durationMinutes":null,"totalOccurrences":3}
+- "Every anniversary on March 15, padala 5000 kay wife for 10 years" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"yearly","value":"03-15"},"condition":null,"durationMinutes":null,"totalOccurrences":10}
+- "Send papa 2000 every year on his birthday June 20" → {"error":"Please specify how many times or for how long (e.g. 'for 5 years' or '3 times')"}
+
 MULTI-DAY (cron):
 - "Send 1000 every 1st and 15th kay mama for 3 months" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":1000,"token":"USDC","schedule":{"kind":"cron","value":"0 9 1,15 * *"},"condition":null,"durationMinutes":null,"totalOccurrences":6}
 
@@ -171,6 +196,12 @@ SUB-DAILY:
 - "Every 2 hours, padala 100 kay wife for the next 6 hours" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":100,"token":"USDC","schedule":{"kind":"cron","value":"0 */2 * * *"},"condition":null,"durationMinutes":360,"totalOccurrences":3}
 - "Send 1 HTT every minute to my wife 10 times" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1,"token":"HTT","schedule":{"kind":"cron","value":"*/1 * * * *"},"condition":null,"durationMinutes":null,"totalOccurrences":10}
 - "Send 1 HTT every minute to my wife" → {"error":"Please specify how many times or for how long (e.g. 'for 5 minutes' or '10 times')"}
+
+SUB-MINUTE (seconds):
+- "Send 0.1 USDT to my wife every 5 seconds for 2 minutes" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":0.1,"token":"USDT","schedule":{"kind":"seconds","value":"5"},"condition":null,"durationMinutes":2,"totalOccurrences":24}
+- "For the next 1 minute, send 1 HTT every 10 seconds to mama" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":1,"token":"HTT","schedule":{"kind":"seconds","value":"10"},"condition":null,"durationMinutes":1,"totalOccurrences":6}
+- "Send wife 1 USDC every second 5 times" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDC","schedule":{"kind":"seconds","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":5}
+- "Send 1 HTT every 5 seconds to my wife" → {"error":"Please specify how many times or for how long (e.g. 'for 2 minutes' or '10 times')"}
 
 CONDITIONAL:
 - "Pag bumaba na below 2k yung wallet ni ate, dagdagan ng 3k" → {"kind":"conditional","recipient":{"name":"Ate","hint":""},"amount":3000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":2000,"topUpUsdc":3000},"durationMinutes":null,"totalOccurrences":null}
@@ -247,7 +278,7 @@ export const parseIntent = internalAction({
       // If the model returned an error, pass it through
       if (!parsed.error) {
         const validKinds = ["recurring", "conditional", "oneShot"];
-        const validScheduleKinds = ["monthly", "weekly", "daily", "biweekly", "cron", "once"];
+        const validScheduleKinds = ["monthly", "weekly", "daily", "biweekly", "cron", "once", "seconds", "yearly"];
 
         if (!validKinds.includes(parsed.kind)) {
           throw new Error("Invalid intent kind: " + parsed.kind);

@@ -109,6 +109,14 @@ export const setIntent = internalMutation({
           } else {
             scheduleLabel = `on ${s.value}`;
           }
+        } else if (s.kind === "seconds") {
+          const n = parseInt(s.value);
+          scheduleLabel = n === 1 ? "every second" : `every ${n} seconds`;
+        } else if (s.kind === "yearly") {
+          const [month, day] = s.value.split("-").map(Number);
+          const date = new Date(2000, month - 1, day);
+          const monthName = date.toLocaleDateString("en-US", { month: "long" });
+          scheduleLabel = `every year on ${monthName} ${day}`;
         } else if (s.kind === "cron") {
           const parts = s.value.trim().split(/\s+/);
           if (parts.length === 5) {

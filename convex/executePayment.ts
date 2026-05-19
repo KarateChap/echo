@@ -159,17 +159,6 @@ export const executePayment = internalAction({
         await ctx.runMutation(internal.rules.markCompleted, { ruleId });
       }
 
-      // Track execution count for bounded recurring rules
-      if (rule.kind === "recurring" && rule.totalOccurrences) {
-        const newCount = (rule.executionCount ?? 0) + 1;
-        await ctx.runMutation(internal.rules.incrementExecutionCount, {
-          ruleId,
-          newCount,
-        });
-        if (newCount >= rule.totalOccurrences) {
-          await ctx.runMutation(internal.rules.markCompleted, { ruleId });
-        }
-      }
     } catch (e) {
       const rawError = e instanceof Error ? e.message : String(e);
 

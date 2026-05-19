@@ -18,6 +18,8 @@ import { useDragToCenter } from "@/lib/useDragToCenter";
 import { useAudioLevelContext } from "@/lib/AudioLevelContext";
 import { useVisibleTokens } from "@/lib/useVisibleTokens";
 import { fundAgentWallet } from "@/lib/fundAgentWallet";
+import { useAutoStopDetection } from "@/lib/useAutoStopDetection";
+import { useVoiceCommands } from "@/lib/useVoiceCommands";
 import type { Id } from "../../convex/_generated/dataModel";
 
 type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "funding" | "done" | "error";
@@ -137,6 +139,18 @@ export default function VoiceHome() {
   const [errorMessage, setErrorMessage] = useState("");
   const [processingSubStep, setProcessingSubStep] = useState<ProcessingSubStep>("uploading");
 
+  // Auto-stop: ref for the stop handler (defined later) so the hook can call it
+  const handleStopRef = useRef<() => void>(() => {});
+
+  const autoStop = useAutoStopDetection({
+    enabled: step === "recording",
+    audioLevelRef: micLevelRef,
+    elapsedMs: recorder.elapsedMs,
+    selectedToken,
+    onAutoStop: () => handleStopRef.current(),
+    convexUrl: import.meta.env.VITE_CONVEX_URL ?? "",
+  });
+
   const session = useQuery(
     api.voiceSessions.get,
     sessionId ? { sessionId } : "skip",
@@ -212,6 +226,9 @@ export default function VoiceHome() {
     setStep("recording");
     await recorder.startRecording();
   }, [user, recorder]);
+
+  // Keep auto-stop ref in sync
+  handleStopRef.current = () => handleStopRecording();
 
   async function handleStopRecording() {
     if (!user) return;
@@ -394,6 +411,32 @@ export default function VoiceHome() {
   } catch {}
   if (step === "idle") parsedIntentRef.current = null;
   const parsedIntent = parsedIntentRef.current;
+
+  // Voice commands — listen for spoken actions during confirm/prompt steps
+  // Only enable after TTS readback finishes to prevent it from being picked up as a command
+  const ttsFinished = !ttsAudioEl;
+  useVoiceCommands({
+    enabled: step === "confirm" && !!parsedIntent && !parsedIntent.error && ttsFinished,
+    commands: [
+      { keywords: ["approve", "confirm", "proceed"], action: () => handleApprove() },
+      { keywords: ["cancel", "nevermind", "never mind"], action: () => resetFlow() },
+    ],
+  });
+
+  useVoiceCommands({
+    enabled: step === "ask-voice-msg",
+    commands: [
+      { keywords: ["record", "sure"], action: () => handleRecordMessage() },
+      { keywords: ["skip", "pass"], action: () => handleFinalize() },
+    ],
+  });
+
+  useVoiceCommands({
+    enabled: step === "error" || step === "done",
+    commands: [
+      { keywords: ["try again", "retry"], action: () => resetFlow() },
+    ],
+  });
 
   const isOrbActive = step === "recording" || step === "processing";
   const selectedTokenInfo = useMemo(() => allTokens.find((t) => t.symbol === selectedToken), [allTokens, selectedToken]);
@@ -579,8 +622,15 @@ export default function VoiceHome() {
               {step === "recording" && (
                 <div>
                   <span className={remaining <= 5 ? "text-accent" : "text-white/60"}>
-                    Recording — {seconds}s {remaining <= 5 ? `(${remaining}s left)` : ""}
+                    {autoStop.isCheckingCompleteness
+                      ? "Understanding..."
+                      : `Recording — ${seconds}s ${remaining <= 5 ? `(${remaining}s left)` : ""}`}
                   </span>
+                  {autoStop.interimTranscript && (
+                    <p className="mt-1 text-xs text-white/30 italic max-w-xs mx-auto truncate">
+                      "{autoStop.interimTranscript}"
+                    </p>
+                  )}
                   <div className="mt-1">
                     <button onClick={() => { recorder.stopRecording(); resetFlow(); }} className="glass-nav text-xs">
                       Cancel
@@ -711,6 +761,14 @@ export default function VoiceHome() {
                 <button onClick={resetFlow} className="btn-secondary">Cancel</button>
               </div>
             </div>
+
+            {/* Voice hint */}
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/25">
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+              </svg>
+              Say "Approve" or "Cancel"
+            </div>
           </div>
         )}
 
@@ -742,6 +800,12 @@ export default function VoiceHome() {
             <div className="flex justify-center gap-3">
               <button onClick={handleRecordMessage} className="btn-accent">Record message</button>
               <button onClick={() => handleFinalize()} className="btn-secondary">Skip</button>
+            </div>
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/25">
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+              </svg>
+              Say "Record" or "Skip"
             </div>
           </div>
         )}

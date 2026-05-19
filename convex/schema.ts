@@ -29,6 +29,7 @@ export default defineSchema({
       kind: v.union(
         v.literal("monthly"), v.literal("weekly"), v.literal("daily"),
         v.literal("biweekly"), v.literal("cron"), v.literal("once"),
+        v.literal("seconds"), v.literal("yearly"),
       ),
       value: v.string(),
     })),

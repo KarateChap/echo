@@ -15,4 +15,10 @@ crons.interval(
   internal.notify.retryPendingNotifications,
 );
 
+crons.interval(
+  "tickConditionalRules",
+  { minutes: 5 },
+  internal.scheduler.tickConditionalRules,
+);
+
 export default crons;

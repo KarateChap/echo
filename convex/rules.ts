@@ -83,6 +83,21 @@ function nextScheduleRunAt(schedule: { kind: string; value: string }): number {
     return target.getTime();
   }
 
+  // Handle seconds — value is interval in seconds
+  if (schedule.kind === "seconds") {
+    return Date.now() + parseInt(schedule.value) * 1000;
+  }
+
+  // Handle yearly — value is "MM-DD"
+  if (schedule.kind === "yearly") {
+    const [month, day] = schedule.value.split("-").map(Number);
+    const next = new Date(now.getFullYear(), month - 1, day, 9, 0, 0, 0);
+    if (next.getTime() <= now.getTime()) {
+      next.setFullYear(next.getFullYear() + 1);
+    }
+    return next.getTime();
+  }
+
   // Handle cron expression with validation
   if (schedule.kind === "cron") {
     try {
@@ -119,6 +134,7 @@ export const createFromIntent = mutation({
       kind: v.union(
         v.literal("monthly"), v.literal("weekly"), v.literal("daily"),
         v.literal("biweekly"), v.literal("cron"), v.literal("once"),
+        v.literal("seconds"), v.literal("yearly"),
       ),
       value: v.string(),
     })),
@@ -221,6 +237,14 @@ export const createFromIntent = mutation({
       });
     }
 
+    // For seconds-based rules, start the self-scheduling loop (cron tick is too slow)
+    if (args.schedule?.kind === "seconds") {
+      const intervalMs = parseInt(args.schedule.value) * 1000;
+      await ctx.scheduler.runAfter(intervalMs, internal.scheduler.executeSecondsRule, {
+        ruleId,
+      });
+    }
+
     return { ruleId, recipientName: recipient.displayName };
   },
 });
@@ -292,6 +316,14 @@ export const resume = mutation({
       ? nextScheduleRunAt(rule.schedule)
       : Date.now() + 24 * 60 * 60 * 1000;
     await ctx.db.patch(ruleId, { status: "active", nextRunAt });
+
+    // Restart self-scheduling loop for seconds-based rules
+    if (rule.schedule?.kind === "seconds") {
+      const intervalMs = parseInt(rule.schedule.value) * 1000;
+      await ctx.scheduler.runAfter(intervalMs, internal.scheduler.executeSecondsRule, {
+        ruleId,
+      });
+    }
   },
 });
 
@@ -329,6 +361,14 @@ export const advanceNextRun = internalMutation({
     if (rule.schedule?.kind === "biweekly" && rule.nextRunAt) {
       // Biweekly: add exactly 14 days from the last scheduled time
       nextRunAt = rule.nextRunAt + 14 * 24 * 60 * 60 * 1000;
+    } else if (rule.schedule?.kind === "yearly" && rule.nextRunAt) {
+      // Yearly: add exactly 1 year from the last scheduled time
+      const prev = new Date(rule.nextRunAt);
+      prev.setFullYear(prev.getFullYear() + 1);
+      nextRunAt = prev.getTime();
+    } else if (rule.schedule?.kind === "seconds") {
+      // Seconds-based rules are self-scheduled, not advanced by cron
+      return;
     } else if (rule.schedule) {
       nextRunAt = nextScheduleRunAt(rule.schedule);
     } else {

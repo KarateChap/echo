@@ -12,6 +12,7 @@ import type * as claims from "../claims.js";
 import type * as crons from "../crons.js";
 import type * as customTokens from "../customTokens.js";
 import type * as executePayment from "../executePayment.js";
+import type * as http from "../http.js";
 import type * as notify from "../notify.js";
 import type * as parseIntent from "../parseIntent.js";
 import type * as recipients from "../recipients.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   customTokens: typeof customTokens;
   executePayment: typeof executePayment;
+  http: typeof http;
   notify: typeof notify;
   parseIntent: typeof parseIntent;
   recipients: typeof recipients;
