@@ -8,8 +8,8 @@ export const tickScheduledRules = internalAction({
     const dueRules = await ctx.runQuery(internal.scheduler.getDueRules);
 
     for (const rule of dueRules) {
-      // Seconds-based rules are self-scheduled, skip them here
-      if (rule.schedule?.kind === "seconds") continue;
+      // Recurring seconds-based rules are self-scheduled, skip them here
+      if (rule.kind === "recurring" && rule.schedule?.kind === "seconds") continue;
 
       // Check if the rule has expired
       if (rule.expiresAt && Date.now() > rule.expiresAt) {
@@ -32,7 +32,7 @@ export const tickScheduledRules = internalAction({
         ruleId: rule._id,
       });
 
-      const isFutureOneShot = rule.kind === "oneShot" && rule.schedule?.kind === "once";
+      const isFutureOneShot = rule.kind === "oneShot" && (rule.schedule?.kind === "once" || rule.schedule?.kind === "seconds");
 
       if (isFutureOneShot) {
         // Future one-shot picked up by cron — mark completed so it doesn't re-fire.
@@ -161,8 +161,23 @@ export const tickConditionalRules = internalAction({
           rule.token ?? "USDC",
         );
 
+        const direction = rule.condition.direction ?? "below";
+        const conditionMet = direction === "above"
+          ? balance > rule.condition.walletBelowUsdc
+          : balance < rule.condition.walletBelowUsdc;
+
+        // Arming logic: the condition must first be observed as NOT met before
+        // we allow firing. This prevents immediate execution when the condition
+        // is already true at rule creation time.
+        if (!rule.conditionArmed) {
+          if (!conditionMet) {
+            await ctx.runMutation(internal.rules.armCondition, { ruleId: rule._id });
+          }
+          continue;
+        }
+
         // Only fire if balance is below threshold
-        if (balance < rule.condition.walletBelowUsdc) {
+        if (conditionMet) {
           await ctx.scheduler.runAfter(0, internal.executePayment.executePayment, {
             ruleId: rule._id,
           });

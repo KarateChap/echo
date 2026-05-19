@@ -8,8 +8,9 @@ export const synthesizeSpeech = internalAction({
   args: {
     sessionId: v.id("voiceSessions"),
     text: v.string(),
+    voiceGender: v.optional(v.union(v.literal("female"), v.literal("male"))),
   },
-  handler: async (ctx, { sessionId, text }) => {
+  handler: async (ctx, { sessionId, text, voiceGender }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       console.warn("OPENAI_API_KEY missing — skipping readback");
@@ -24,8 +25,8 @@ export const synthesizeSpeech = internalAction({
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "tts-1",
-          voice: "nova",
+          model: "tts-1-hd",
+          voice: voiceGender === "male" ? "echo" : "shimmer",
           input: text,
           response_format: "mp3",
         }),

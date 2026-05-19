@@ -99,6 +99,11 @@ export default function VoiceHome() {
   const [showAddToken, setShowAddToken] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
 
+  // User record (for voice gender preference)
+  const dbUser = useQuery(api.users.getByPrivyId, user ? { privyId: user.id } : "skip");
+  const updateVoiceGender = useMutation(api.users.updateVoiceGender);
+  const voiceGender = dbUser?.voiceGender ?? "female";
+
   const generateUploadUrl = useMutation(api.voiceSessions.generateUploadUrl);
   const createSession = useMutation(api.voiceSessions.create);
   const createRule = useMutation(api.rules.createFromIntent);
@@ -113,6 +118,7 @@ export default function VoiceHome() {
   useEffect(() => { recorder.prewarmMic(); }, []);
 
   const [ttsAudioEl, setTtsAudioEl] = useState<HTMLAudioElement | null>(null);
+  const [ttsHasPlayed, setTtsHasPlayed] = useState(false);
   const micLevelRef = useAudioAnalyser(recorder.stream);
   const ttsLevelRef = useAudioAnalyser(ttsAudioEl);
 
@@ -226,13 +232,14 @@ export default function VoiceHome() {
 
   // Track whether ElevenLabs TTS succeeded so we know whether to fall back to stored audio
   const elevenLabsPlayedRef = useRef(false);
+  const hasPlayedFallbackRef = useRef<string | null>(null);
 
   // Primary: fetch ElevenLabs TTS as soon as readbackText is available (faster than stored OpenAI audio)
   useEffect(() => {
     const text = session?.readbackText;
     if (!text || text === hasPlayedRef.current || !convexSiteUrl) return;
     hasPlayedRef.current = text;
-    elevenLabsPlayedRef.current = false;
+    elevenLabsPlayedRef.current = true;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
 
     let cancelled = false;
@@ -241,7 +248,7 @@ export default function VoiceHome() {
         const res = await fetch(`${convexSiteUrl}/api/tts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text, voice: voiceGender }),
         });
         if (!res.ok || cancelled) return;
         const blob = await res.blob();
@@ -250,31 +257,32 @@ export default function VoiceHome() {
         const audio = new Audio(blobUrl);
         audioRef.current = audio;
         setTtsAudioEl(audio);
-        elevenLabsPlayedRef.current = true;
-        audio.addEventListener("ended", () => { setTtsAudioEl(null); URL.revokeObjectURL(blobUrl); });
-        audio.addEventListener("pause", () => setTtsAudioEl(null));
+        audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); URL.revokeObjectURL(blobUrl); });
+        audio.addEventListener("pause", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
         audio.play().catch(() => {});
       } catch {
-        // ElevenLabs failed — fallback to stored audio will trigger below
+        elevenLabsPlayedRef.current = false; // allow fallback to stored audio
       }
     })();
 
     return () => { cancelled = true; };
-  }, [session?.readbackText, convexSiteUrl]);
+  }, [session?.readbackText, convexSiteUrl, voiceGender]);
 
   // Fallback: if ElevenLabs TTS didn't play and stored readbackUrl becomes available, use it
   useEffect(() => {
     const url = session?.readbackUrl;
     if (!url || elevenLabsPlayedRef.current) return;
+    if (url === hasPlayedFallbackRef.current) return;
     // Only play if we haven't already played via ElevenLabs
     if (audioRef.current && audioRef.current.currentTime > 0) return;
+    hasPlayedFallbackRef.current = url;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
     const audio = new Audio(url);
     audio.crossOrigin = "anonymous";
     audioRef.current = audio;
     setTtsAudioEl(audio);
-    audio.addEventListener("ended", () => setTtsAudioEl(null));
-    audio.addEventListener("pause", () => setTtsAudioEl(null));
+    audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
+    audio.addEventListener("pause", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
     audio.play().catch(() => {});
   }, [session?.readbackUrl]);
 
@@ -316,8 +324,10 @@ export default function VoiceHome() {
     voiceEmail.retry();
     setProcessingSubStep("uploading");
     hasPlayedRef.current = null;
+    hasPlayedFallbackRef.current = null;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
     setTtsAudioEl(null);
+    setTtsHasPlayed(false);
     setStep("recording");
     await recorder.startRecording();
   }, [user, recorder]);
@@ -442,8 +452,8 @@ export default function VoiceHome() {
         condition: intent.condition ?? undefined,
         fundingTxHash,
         expiresAt,
-        totalOccurrences: totalOccurrences > 1 ? totalOccurrences : undefined,
-        totalFunded: totalOccurrences > 1 ? fundingAmount : undefined,
+        totalOccurrences: (intent.kind === "conditional" || totalOccurrences > 1) ? totalOccurrences : undefined,
+        totalFunded: (intent.kind === "conditional" || totalOccurrences > 1) ? fundingAmount : undefined,
       });
       setCreatedRuleId(result.ruleId);
       setCreatedRecipientName(result.recipientName);
@@ -467,7 +477,13 @@ export default function VoiceHome() {
 
       setStep("done");
     } catch (e) {
-      setErrorMessage(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+      const raw = e instanceof Error ? e.message : String(e);
+      // Detect user-rejected wallet prompts (Privy / viem)
+      if (/user rejected|user denied|rejected the request/i.test(raw)) {
+        setErrorMessage("Transaction was cancelled. No funds were sent.");
+      } else {
+        setErrorMessage("Something went wrong. Please try again.");
+      }
       setStep("error");
     }
   }
@@ -490,8 +506,10 @@ export default function VoiceHome() {
     voiceEmail.retry();
     setProcessingSubStep("uploading");
     hasPlayedRef.current = null;
+    hasPlayedFallbackRef.current = null;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
     setTtsAudioEl(null);
+    setTtsHasPlayed(false);
   }
 
   useEffect(() => {
@@ -579,7 +597,35 @@ export default function VoiceHome() {
     <div className="mx-auto flex min-h-full max-w-md flex-col px-6 py-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Echo</h1>
-        <button onClick={logout} className="glass-nav text-xs">Sign out</button>
+        <div className="flex items-center gap-3">
+          {/* Voice gender segmented toggle */}
+          <div
+            className="relative flex items-center rounded-full p-0.5"
+            style={{
+              background: "rgba(140, 160, 255, 0.08)",
+              border: "1px solid rgba(140, 160, 255, 0.12)",
+            }}
+          >
+            {(["female", "male"] as const).map((g) => (
+              <button
+                key={g}
+                onClick={() => {
+                  if (user && voiceGender !== g) updateVoiceGender({ privyId: user.id, voiceGender: g });
+                }}
+                className="relative z-10 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-200"
+                style={{
+                  color: voiceGender === g ? "rgba(255,255,255,0.95)" : "rgba(180, 200, 255, 0.45)",
+                  background: voiceGender === g ? "rgba(99, 102, 241, 0.35)" : "transparent",
+                  boxShadow: voiceGender === g ? "0 0 8px rgba(99, 102, 241, 0.25)" : "none",
+                }}
+              >
+                <span style={{ fontSize: "13px" }}>{g === "female" ? "♀" : "♂"}</span>
+                {g === "female" ? "Female" : "Male"}
+              </button>
+            ))}
+          </div>
+          <button onClick={logout} className="glass-nav text-xs">Sign out</button>
+        </div>
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center gap-4 pt-12">
@@ -851,6 +897,7 @@ export default function VoiceHome() {
                     ? Date.now() + parsedIntent.durationMinutes * 60000
                     : undefined,
                   parsedIntent.totalOccurrences ?? undefined,
+                  parsedIntent.kind,
                 )}
               </div>
             )}
@@ -877,8 +924,8 @@ export default function VoiceHome() {
                 </button>
               )}
               <div className={`flex gap-3 ${session?.readbackUrl ? "" : "ml-auto"}`}>
-                <button onClick={handleApprove} className="btn-primary px-6">Approve</button>
-                <button onClick={resetFlow} className="btn-secondary">Cancel</button>
+                <button onClick={handleApprove} disabled={!ttsHasPlayed} className={`btn-primary px-6${!ttsHasPlayed ? " opacity-40 pointer-events-none" : ""}`}>Approve</button>
+                <button onClick={resetFlow} disabled={!ttsHasPlayed} className={`btn-secondary${!ttsHasPlayed ? " opacity-40 pointer-events-none" : ""}`}>Cancel</button>
               </div>
             </div>
 

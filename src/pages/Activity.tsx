@@ -141,6 +141,7 @@ export default function Activity() {
 
 function TxCard({ tx }: { tx: any }) {
   const isRefund = tx.error === "REFUND";
+  const isAwaitingClaim = tx.status === "failed" && tx.error?.includes("claim email sent");
   return (
     <div className="glass-card glass-card-hover space-y-1 p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
@@ -150,17 +151,18 @@ function TxCard({ tx }: { tx: any }) {
             className="block truncate font-medium"
           />
           <span className="text-[10px] text-white/40">
-            {isRefund ? "Rule cancelled — unspent tokens returned" : tx.isSender ? "Sent" : "Received"}
+            {isRefund ? "Rule cancelled — unspent tokens returned" : isAwaitingClaim ? "Awaiting recipient signup" : tx.isSender ? "Sent" : "Received"}
           </span>
         </div>
         <span className={`shrink-0 glass-badge ${
           isRefund ? "bg-purple-500/15 text-purple-400 border-purple-500/20" :
+          isAwaitingClaim ? "bg-amber-500/15 text-amber-400 border-amber-500/20" :
           tx.status === "success" ? "bg-green-500/15 text-green-400 border-green-500/20" :
           tx.status === "failed" ? "bg-red-500/15 text-red-400 border-red-500/20" :
           tx.status === "submitted" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
           "bg-white/10 text-white/50"
         }`}>
-          {isRefund ? "refund" : tx.status}
+          {isRefund ? "refund" : isAwaitingClaim ? "awaiting claim" : tx.status}
         </span>
       </div>
 
@@ -189,7 +191,14 @@ function TxCard({ tx }: { tx: any }) {
         </a>
       )}
 
-      {tx.error && !isRefund && <TxError error={tx.error} />}
+      {tx.error && !isRefund && !isAwaitingClaim && <TxError error={tx.error} />}
+      {isAwaitingClaim && (
+        <div className="mt-1 overflow-hidden rounded-lg bg-amber-500/8 border border-amber-500/15 px-3 py-2">
+          <span className="text-[11px] text-amber-400 leading-relaxed">
+            Claim email sent — waiting for {tx.recipientName} to sign up
+          </span>
+        </div>
+      )}
     </div>
   );
 }

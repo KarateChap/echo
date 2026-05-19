@@ -39,14 +39,33 @@ export const executePayment = internalAction({
     }
 
     if (!rule.recipientWalletAddress) {
-      await ctx.runMutation(internal.transactions.recordFailure, {
-        ruleId,
-        error: `Recipient "${rule.recipientName}" has no wallet address yet — they need to claim first`,
-      });
-      // Mark one-shot rules as cancelled on failure so they don't stay pending
-      if (rule.kind === "oneShot") {
-        await ctx.runMutation(internal.rules.markCancelled, { ruleId });
+      // Check if we already sent a claim email for this rule
+      const alreadySentClaim = await ctx.runQuery(internal.claims.hasClaimForRule, { ruleId });
+
+      if (!alreadySentClaim) {
+        // Record one failure transaction (informational, first time only)
+        await ctx.runMutation(internal.transactions.recordFailure, {
+          ruleId,
+          error: `Recipient "${rule.recipientName}" has no wallet address yet — claim email sent`,
+        });
+
+        // Send claim email if recipient has an email
+        if (rule.recipientEmail) {
+          await ctx.scheduler.runAfter(0, internal.notify.sendClaimEmail, {
+            ruleId,
+            recipientId: rule.recipientId,
+            recipientEmail: rule.recipientEmail,
+            recipientName: rule.recipientName,
+            senderName: rule.ownerName,
+            amountUsdc: rule.amountUsdc,
+            cryptoToken: rule.token,
+            voiceMessageId: rule.voiceMessageId,
+          });
+        }
       }
+
+      // Park the rule until the recipient signs up
+      await ctx.runMutation(internal.rules.markAwaitingRecipient, { ruleId });
       return;
     }
 

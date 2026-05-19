@@ -2,8 +2,9 @@ export function formatSchedule(
   schedule: { kind: string; value: string },
   expiresAt?: number,
   totalOccurrences?: number,
+  ruleKind?: string,
 ): string {
-  const base = formatScheduleBase(schedule);
+  const base = formatScheduleBase(schedule, ruleKind);
   if (totalOccurrences) {
     return `${base} (${totalOccurrences}x)`;
   }
@@ -18,7 +19,7 @@ export function formatSchedule(
   return base;
 }
 
-function formatScheduleBase(schedule: { kind: string; value: string }) {
+function formatScheduleBase(schedule: { kind: string; value: string }, ruleKind?: string) {
   if (schedule.kind === "monthly") {
     if (schedule.value === "last") return "Monthly on the last day";
     return `Monthly on the ${schedule.value}${ordinalSuffix(schedule.value)}`;
@@ -34,6 +35,13 @@ function formatScheduleBase(schedule: { kind: string; value: string }) {
   if (schedule.kind === "biweekly") return `Every other ${schedule.value}`;
   if (schedule.kind === "seconds") {
     const n = parseInt(schedule.value);
+    if (ruleKind === "oneShot") {
+      if (n >= 60) {
+        const mins = Math.round(n / 60);
+        return mins === 1 ? "After 1 minute" : `After ${mins} minutes`;
+      }
+      return n === 1 ? "After 1 second" : `After ${n} seconds`;
+    }
     return n === 1 ? "Every second" : `Every ${n} seconds`;
   }
   if (schedule.kind === "yearly") {

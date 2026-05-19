@@ -1,4 +1,4 @@
-import { mutation, query, internalMutation } from "./_generated/server";
+import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 export const createClaimToken = internalMutation({
@@ -31,6 +31,17 @@ export const createClaimToken = internalMutation({
     });
 
     return token;
+  },
+});
+
+export const hasClaimForRule = internalQuery({
+  args: { ruleId: v.id("rules") },
+  handler: async (ctx, { ruleId }) => {
+    const existing = await ctx.db
+      .query("claims")
+      .withIndex("by_ruleId", (q) => q.eq("ruleId", ruleId))
+      .first();
+    return !!existing;
   },
 });
 

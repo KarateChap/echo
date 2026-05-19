@@ -8,6 +8,7 @@ export default defineSchema({
     email: v.optional(v.string()),
     displayName: v.optional(v.string()),
     preferredLanguage: v.optional(v.string()),
+    voiceGender: v.optional(v.union(v.literal("female"), v.literal("male"))),
   }).index("by_privyId", ["privyId"])
     .index("by_email", ["email"]),
 
@@ -36,8 +37,9 @@ export default defineSchema({
     condition: v.optional(v.object({
       walletBelowUsdc: v.number(),
       topUpUsdc: v.number(),
+      direction: v.optional(v.union(v.literal("below"), v.literal("above"))), // defaults to "below" if unset
     })),
-    status: v.union(v.literal("pending"), v.literal("active"), v.literal("paused"), v.literal("cancelled"), v.literal("completed")),
+    status: v.union(v.literal("pending"), v.literal("active"), v.literal("paused"), v.literal("cancelled"), v.literal("completed"), v.literal("awaitingRecipient")),
     voiceMessageId: v.optional(v.id("voiceMessages")),
     fundingTxHash: v.optional(v.string()), // legacy custodial path
     delegationTxHash: v.optional(v.string()), // EIP-7702 delegation tx
@@ -48,9 +50,11 @@ export default defineSchema({
     totalOccurrences: v.optional(v.number()),
     totalFunded: v.optional(v.number()), // legacy custodial path
     executionCount: v.optional(v.number()),
+    conditionArmed: v.optional(v.boolean()), // conditional rules: true once the condition has been observed as NOT met, preventing immediate firing
   })
     .index("by_owner", ["ownerId"])
-    .index("by_status_and_next_run", ["status", "nextRunAt"]),
+    .index("by_status_and_next_run", ["status", "nextRunAt"])
+    .index("by_recipient_and_status", ["recipientId", "status"]),
 
   voiceMessages: defineTable({
     ownerId: v.id("users"),
@@ -99,7 +103,8 @@ export default defineSchema({
     claimed: v.boolean(),
     claimedAt: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_token", ["token"]),
+  }).index("by_token", ["token"])
+    .index("by_ruleId", ["ruleId"]),
 
   voiceSessions: defineTable({
     ownerId: v.id("users"),

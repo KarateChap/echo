@@ -216,7 +216,7 @@ http.route({
   method: "POST",
   handler: httpAction(async (_ctx, request) => {
     try {
-      const { text } = (await request.json()) as { text: string };
+      const { text, voice } = (await request.json()) as { text: string; voice?: "male" | "female" };
       if (!text) {
         return new Response(JSON.stringify({ error: "Missing text" }), {
           status: 400,
@@ -224,9 +224,13 @@ http.route({
         });
       }
 
+      const isMale = voice === "male";
+
       // Try ElevenLabs first (faster turbo model)
       const elevenKey = process.env.ELEVENLABS_API_KEY;
-      const voiceId = process.env.ELEVENLABS_VOICE_ID_HOPE;
+      const voiceId = isMale
+        ? process.env.ELEVENLABS_VOICE_ID_MARK
+        : process.env.ELEVENLABS_VOICE_ID_HOPE;
 
       if (elevenKey && voiceId) {
         const res = await fetch(
@@ -240,7 +244,7 @@ http.route({
             body: JSON.stringify({
               text,
               model_id: "eleven_turbo_v2",
-              voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+              voice_settings: { stability: 0.3, similarity_boost: 0.85, style: 0.6, use_speaker_boost: true },
             }),
           },
         );
@@ -275,8 +279,8 @@ http.route({
           Authorization: `Bearer ${openaiKey}`,
         },
         body: JSON.stringify({
-          model: "tts-1",
-          voice: "nova",
+          model: "tts-1-hd",
+          voice: isMale ? "echo" : "shimmer",
           input: text,
           response_format: "mp3",
         }),

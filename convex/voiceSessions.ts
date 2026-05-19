@@ -149,7 +149,13 @@ export const setIntent = internalMutation({
             }
           } else if (s.kind === "seconds") {
             const n = parseInt(s.value);
-            scheduleLabel = n === 1 ? "every second" : `every ${n} seconds`;
+            if (parsed.kind === "oneShot") {
+              scheduleLabel = n >= 60
+                ? `after ${Math.round(n / 60)} minute${Math.round(n / 60) === 1 ? "" : "s"}`
+                : `after ${n} second${n === 1 ? "" : "s"}`;
+            } else {
+              scheduleLabel = n === 1 ? "every second" : `every ${n} seconds`;
+            }
           } else if (s.kind === "yearly") {
             const [month, day] = s.value.split("-").map(Number);
             const date = new Date(2000, month - 1, day);
@@ -191,7 +197,8 @@ export const setIntent = internalMutation({
 
         const kindLabel =
           parsed.kind === "recurring" ? scheduleLabel || "on a recurring schedule"
-          : parsed.kind === "conditional" ? `whenever ${name}'s wallet drops below the threshold`
+          : parsed.kind === "conditional" && parsed.condition?.direction === "above" ? `whenever ${name}'s wallet goes above ${parsed.condition.walletBelowUsdc} ${token}`
+          : parsed.kind === "conditional" ? `whenever ${name}'s wallet drops below ${parsed.condition?.walletBelowUsdc ?? "the threshold"} ${token}`
           : scheduleLabel ? scheduleLabel
           : "right away";
         readbackText = `Got it. Sending ${amount} ${token} to ${name}, ${kindLabel}. Please confirm to proceed.`;
@@ -226,9 +233,15 @@ export const setIntent = internalMutation({
 
     // Schedule background TTS synthesis for the Replay button (stored audio)
     if (readbackText) {
+      // Look up user's voice preference
+      const sess = currentSession ?? await ctx.db.get(sessionId);
+      const owner = sess ? await ctx.db.get(sess.ownerId) : null;
+      const voiceGender = owner?.voiceGender ?? "female";
+
       await ctx.scheduler.runAfter(0, internal.synthesize.synthesizeSpeech, {
         sessionId,
         text: readbackText,
+        voiceGender,
       });
     }
   },

@@ -18,7 +18,7 @@ Output ONLY valid JSON matching this schema — no markdown, no explanation:
   "amount": number,
   "token": "USDC" | "USDT" | "ETH" | "HTT",
   "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once" | "seconds" | "yearly", "value": string } | null,
-  "condition": { "walletBelowUsdc": number, "topUpUsdc": number } | null,
+  "condition": { "walletBelowUsdc": number, "topUpUsdc": number, "direction": "below" | "above" } | null,
   "durationMinutes": number | null,
   "totalOccurrences": number | null
 }
@@ -86,6 +86,16 @@ SCHEDULE & KIND RULES
    - "on Christmas" → "YYYY-12-25"
    - "tomorrow" → compute the actual date
 
+2b. ONE-SHOT (delayed): User wants to send ONCE but AFTER a short delay — NOT recurring.
+   → kind="oneShot", schedule={ kind:"seconds", value:"<totalSeconds>" }
+   Triggered by: "after N seconds", "after N minutes", "in N seconds", "in N minutes",
+     "pagkatapos ng N seconds", "mamaya after N minutes"
+   - "after 30 seconds" → kind="oneShot", schedule={ kind:"seconds", value:"30" }
+   - "in 2 minutes" → kind="oneShot", schedule={ kind:"seconds", value:"120" }
+   - "after 1 minute" → kind="oneShot", schedule={ kind:"seconds", value:"60" }
+   IMPORTANT: "after/in N seconds/minutes" means a SINGLE delayed payment.
+   Only use kind="recurring" when the user explicitly says "every" (e.g. "every 30 seconds").
+
 3. RECURRING MONTHLY: User wants to send every month on a specific day.
    → kind="recurring", schedule={ kind:"monthly", value:"<day>" }
    - value is the day of month as a string: "1", "15", "28"
@@ -139,10 +149,15 @@ SCHEDULE & KIND RULES
    - If the user specifies a duration, convert to durationMinutes (e.g. "for 2 minutes" → durationMinutes=2).
    - Calculate totalOccurrences = durationMinutes × 60 ÷ seconds (or from explicit count).
 
-8. CONDITIONAL: User sets a balance threshold to auto-top-up.
-   → kind="conditional", schedule=null, condition={ walletBelowUsdc:<threshold>, topUpUsdc:<amount> }
-   - "If wallet drops below X, send Y"
-   - "Pag bumaba below X, dagdagan ng Y"
+8. CONDITIONAL: User sets a balance threshold to trigger a transfer.
+   → kind="conditional", schedule=null, condition={ walletBelowUsdc:<threshold>, topUpUsdc:<amount>, direction:"below"|"above" }
+   - direction="below": fires when recipient's wallet drops BELOW the threshold (auto-top-up).
+     "If wallet drops below X, send Y" / "Pag bumaba below X, dagdagan ng Y"
+   - direction="above": fires when recipient's wallet goes ABOVE the threshold.
+     "If wallet exceeds X, send Y" / "Kapag tumaas sa X, send Y" / "When balance is more than X, send Y"
+   - walletBelowUsdc is the threshold value regardless of direction (the name is legacy).
+   - IMPORTANT: Detect direction from context — "drops below", "bumaba", "goes under" → "below";
+     "exceeds", "tumaas", "goes above", "more than", "higher than", "rises above" → "above".
 
 If the instruction is too ambiguous (e.g. "send mama money regularly" without amount), return:
 { "error": "Please specify the amount and how often" }
@@ -203,9 +218,13 @@ SUB-MINUTE (seconds):
 - "Send wife 1 USDC every second 5 times" → {"kind":"recurring","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDC","schedule":{"kind":"seconds","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":5}
 - "Send 1 HTT every 5 seconds to my wife" → {"error":"Please specify how many times or for how long (e.g. 'for 2 minutes' or '10 times')"}
 
-CONDITIONAL:
-- "Pag bumaba na below 2k yung wallet ni ate, dagdagan ng 3k" → {"kind":"conditional","recipient":{"name":"Ate","hint":""},"amount":3000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":2000,"topUpUsdc":3000},"durationMinutes":null,"totalOccurrences":null}
-- "If mama's wallet drops below 1000, top up 5000" → {"kind":"conditional","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":1000,"topUpUsdc":5000},"durationMinutes":null,"totalOccurrences":null}
+CONDITIONAL (below — auto-top-up):
+- "Pag bumaba na below 2k yung wallet ni ate, dagdagan ng 3k" → {"kind":"conditional","recipient":{"name":"Ate","hint":""},"amount":3000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":2000,"topUpUsdc":3000,"direction":"below"},"durationMinutes":null,"totalOccurrences":null}
+- "If mama's wallet drops below 1000, top up 5000" → {"kind":"conditional","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":1000,"topUpUsdc":5000,"direction":"below"},"durationMinutes":null,"totalOccurrences":null}
+
+CONDITIONAL (above — send when balance exceeds):
+- "Kapag tumaas sa 5 USDT ang balance ni wife, sendan mo siya ng 1 USDT" → {"kind":"conditional","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDT","schedule":null,"condition":{"walletBelowUsdc":5,"topUpUsdc":1,"direction":"above"},"durationMinutes":null,"totalOccurrences":null}
+- "If wife's balance exceeds 10, send her 1 USDT" → {"kind":"conditional","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDT","schedule":null,"condition":{"walletBelowUsdc":10,"topUpUsdc":1,"direction":"above"},"durationMinutes":null,"totalOccurrences":null}
 
 ERROR CASES:
 - "Send money" (no recipient, no amount) → {"error":"Please specify who to send to and the amount"}

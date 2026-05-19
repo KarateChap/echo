@@ -10,7 +10,7 @@ interface Toast {
   id: string;
   message: string;
   detail: string;
-  type: "sent" | "received" | "failed";
+  type: "sent" | "received" | "failed" | "awaiting";
   exiting?: boolean;
   amount?: number;
   token?: string;
@@ -32,6 +32,14 @@ const ACCENT = {
     iconBorder: "rgba(239, 68, 68, 0.2)",
     text: "#f87171",
     arrow: "!",
+  },
+  awaiting: {
+    border: "rgba(245, 158, 11, 0.15)",
+    glow: "rgba(245, 158, 11, 0.08)",
+    icon: "rgba(245, 158, 11, 0.12)",
+    iconBorder: "rgba(245, 158, 11, 0.2)",
+    text: "#fbbf24",
+    arrow: "\u2709",
   },
   sent: {
     border: "rgba(124, 58, 237, 0.15)",
@@ -86,26 +94,31 @@ export default function TransactionNotifier() {
 
     const newToasts: Toast[] = notifiable.map((tx) => {
       const isRefund = tx.error === "REFUND";
+      const isAwaitingClaim = tx.status === "failed" && tx.error?.includes("claim email sent");
       const isSent = tx.isSender;
-      const failed = tx.status === "failed";
-      const isReceived = !failed && !isSent && !isRefund;
+      const failed = tx.status === "failed" && !isAwaitingClaim;
+      const isReceived = !failed && !isAwaitingClaim && !isSent && !isRefund;
       return {
         id: tx._id,
         message: isRefund
           ? "Rule Cancelled \u2014 Refund"
-          : failed
-            ? "Payment Failed"
-            : isSent
-              ? "Payment Sent"
-              : "Payment Received",
+          : isAwaitingClaim
+            ? "Claim Email Sent"
+            : failed
+              ? "Payment Failed"
+              : isSent
+                ? "Payment Sent"
+                : "Payment Received",
         detail: isRefund
           ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} returned to your wallet`
-          : failed
+          : isAwaitingClaim
             ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
-            : isSent
+            : failed
               ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
-              : `from ${tx.senderName}`,
-        type: isRefund ? "received" : failed ? "failed" : isSent ? "sent" : "received",
+              : isSent
+                ? `${tx.amountUsdc.toLocaleString()} ${tx.token ?? "Unknown"} to ${tx.recipientName}`
+                : `from ${tx.senderName}`,
+        type: isRefund ? "received" : isAwaitingClaim ? "awaiting" : failed ? "failed" : isSent ? "sent" : "received",
         amount: (isRefund || isReceived) ? tx.amountUsdc : undefined,
         token: (isRefund || isReceived) ? (tx.token ?? "Unknown") : undefined,
       };

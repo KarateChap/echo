@@ -141,6 +141,7 @@ export const createFromIntent = mutation({
     condition: v.optional(v.object({
       walletBelowUsdc: v.number(),
       topUpUsdc: v.number(),
+      direction: v.optional(v.union(v.literal("below"), v.literal("above"))),
     })),
     fundingTxHash: v.optional(v.string()), // legacy custodial path
     delegationTxHash: v.optional(v.string()), // EIP-7702 delegation tx
@@ -197,10 +198,10 @@ export const createFromIntent = mutation({
     let nextRunAt: number | undefined;
     let status: "pending" | "active";
 
-    const isFutureOneShot = args.kind === "oneShot" && args.schedule?.kind === "once";
+    const isFutureOneShot = args.kind === "oneShot" && (args.schedule?.kind === "once" || args.schedule?.kind === "seconds");
 
     if (isFutureOneShot && args.schedule) {
-      // Future-dated one-shot: let cron pick it up at the scheduled time
+      // Future-dated or delayed one-shot: let cron pick it up at the scheduled time
       nextRunAt = nextScheduleRunAt(args.schedule);
       status = "active";
     } else if (args.kind === "oneShot") {
@@ -232,6 +233,7 @@ export const createFromIntent = mutation({
       totalOccurrences: args.totalOccurrences,
       totalFunded: args.totalFunded,
       executionCount: args.totalOccurrences ? 0 : undefined,
+      conditionArmed: args.kind === "conditional" ? false : undefined,
     });
 
     // For immediate one-shot rules, fire the payment now (don't wait for cron)
@@ -241,8 +243,8 @@ export const createFromIntent = mutation({
       });
     }
 
-    // For seconds-based rules, start the self-scheduling loop (cron tick is too slow)
-    if (args.schedule?.kind === "seconds") {
+    // For recurring seconds-based rules, start the self-scheduling loop (cron tick is too slow)
+    if (args.kind === "recurring" && args.schedule?.kind === "seconds") {
       const intervalMs = parseInt(args.schedule.value) * 1000;
       await ctx.scheduler.runAfter(intervalMs, internal.scheduler.executeSecondsRule, {
         ruleId,
@@ -346,6 +348,13 @@ export const incrementExecutionCount = internalMutation({
   },
 });
 
+export const armCondition = internalMutation({
+  args: { ruleId: v.id("rules") },
+  handler: async (ctx, { ruleId }) => {
+    await ctx.db.patch(ruleId, { conditionArmed: true });
+  },
+});
+
 export const markCompleted = internalMutation({
   args: { ruleId: v.id("rules") },
   handler: async (ctx, { ruleId }) => {
@@ -357,6 +366,13 @@ export const markCancelled = internalMutation({
   args: { ruleId: v.id("rules") },
   handler: async (ctx, { ruleId }) => {
     await ctx.db.patch(ruleId, { status: "cancelled" });
+  },
+});
+
+export const markAwaitingRecipient = internalMutation({
+  args: { ruleId: v.id("rules") },
+  handler: async (ctx, { ruleId }) => {
+    await ctx.db.patch(ruleId, { status: "awaitingRecipient" });
   },
 });
 

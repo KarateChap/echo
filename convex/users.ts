@@ -1,4 +1,5 @@
 import { mutation, query, internalQuery, type MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 async function linkWalletToRecipients(ctx: MutationCtx, email: string, walletAddress: string) {
@@ -6,6 +7,23 @@ async function linkWalletToRecipients(ctx: MutationCtx, email: string, walletAdd
   for (const r of recipients) {
     if (r.contactEmail?.toLowerCase() === email.toLowerCase() && !r.walletAddress) {
       await ctx.db.patch(r._id, { walletAddress });
+
+      // Find rules waiting on this recipient and trigger them
+      const awaitingRules = await ctx.db
+        .query("rules")
+        .withIndex("by_recipient_and_status", (q) =>
+          q.eq("recipientId", r._id).eq("status", "awaitingRecipient")
+        )
+        .collect();
+
+      for (const rule of awaitingRules) {
+        await ctx.db.patch(rule._id, {
+          status: rule.kind === "oneShot" ? "pending" : "active",
+        });
+        await ctx.scheduler.runAfter(0, internal.executePayment.executePayment, {
+          ruleId: rule._id,
+        });
+      }
     }
   }
 }
@@ -69,6 +87,21 @@ export const getInternal = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
     return await ctx.db.get(userId);
+  },
+});
+
+export const updateVoiceGender = mutation({
+  args: {
+    privyId: v.string(),
+    voiceGender: v.union(v.literal("female"), v.literal("male")),
+  },
+  handler: async (ctx, { privyId, voiceGender }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_privyId", (q) => q.eq("privyId", privyId))
+      .unique();
+    if (!user) throw new Error("User not found");
+    await ctx.db.patch(user._id, { voiceGender });
   },
 });
 

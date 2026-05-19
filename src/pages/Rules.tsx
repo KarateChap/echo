@@ -38,7 +38,7 @@ export default function Rules() {
   const [dateTo, setDateTo] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
-  const RULE_STATUSES = ["active", "pending", "paused", "completed", "cancelled"];
+  const RULE_STATUSES = ["active", "pending", "paused", "completed", "cancelled", "awaitingRecipient"];
 
   const filteredRules = useMemo(() => {
     if (!rules) return undefined;
@@ -178,9 +178,13 @@ export default function Rules() {
             {visibleRules.map((rule) => {
               const isExpanded = expandedId === rule._id;
               const scheduleText = rule.kind === "recurring" && rule.schedule
-                ? formatSchedule(rule.schedule, rule.expiresAt, rule.totalOccurrences)
+                ? formatSchedule(rule.schedule, rule.expiresAt, rule.totalOccurrences, rule.kind)
+                : rule.kind === "oneShot" && rule.schedule
+                ? formatSchedule(rule.schedule, undefined, undefined, rule.kind)
                 : rule.kind === "conditional" && rule.condition
-                ? `When below ${rule.condition.walletBelowUsdc} ${rule.token ?? "Unknown"} → top up ${rule.condition.topUpUsdc} ${rule.token ?? "Unknown"}`
+                ? rule.condition.direction === "above"
+                  ? `When above ${rule.condition.walletBelowUsdc} ${rule.token ?? "Unknown"} → send ${rule.condition.topUpUsdc} ${rule.token ?? "Unknown"}`
+                  : `When below ${rule.condition.walletBelowUsdc} ${rule.token ?? "Unknown"} → top up ${rule.condition.topUpUsdc} ${rule.token ?? "Unknown"}`
                 : "One-time";
 
               return (
@@ -197,9 +201,10 @@ export default function Rules() {
                         rule.status === "completed" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
                         rule.status === "paused" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
                         rule.status === "pending" ? "bg-orange-500/15 text-orange-400 border-orange-500/20" :
+                        rule.status === "awaitingRecipient" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" :
                         "bg-white/10 text-white/50"
                       }`}>
-                        {rule.status}
+                        {rule.status === "awaitingRecipient" ? "awaiting recipient" : rule.status}
                       </span>
                       <svg
                         className={`h-4 w-4 text-white/40 transition-transform ${isExpanded ? "rotate-180" : ""}`}
@@ -247,7 +252,7 @@ export default function Rules() {
                             {rule.schedule.kind === "cron" && (
                               <div className="flex justify-between">
                                 <span className="text-white/40">Schedule</span>
-                                <span className="text-white/70">{formatSchedule(rule.schedule, rule.expiresAt, rule.totalOccurrences)}</span>
+                                <span className="text-white/70">{formatSchedule(rule.schedule, rule.expiresAt, rule.totalOccurrences, rule.kind)}</span>
                               </div>
                             )}
                           </>
