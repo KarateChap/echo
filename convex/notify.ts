@@ -20,7 +20,7 @@ export const sendClaimEmail = internalAction({
     const resendKey = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL ?? "noreply@pay-echo.space";
 
-    const displayToken = args.cryptoToken ?? "USDC";
+    const displayToken = args.cryptoToken ?? "Unknown";
 
     console.log(`[sendClaimEmail] Sending to ${args.recipientEmail} for rule ${args.ruleId}`);
 
@@ -35,8 +35,8 @@ export const sendClaimEmail = internalAction({
       voiceMessageId: args.voiceMessageId,
     });
 
-    // Build the claim URL — uses localhost in dev, production domain later
-    const baseUrl = process.env.APP_URL ?? "http://localhost:5173";
+    // Build the claim URL — production domain when APP_URL is set, localhost for dev
+    const baseUrl = process.env.APP_URL ?? "https://dev.pay-echo.space";
     const claimUrl = `${baseUrl}/claim/${token}`;
 
     if (!resendKey) {
