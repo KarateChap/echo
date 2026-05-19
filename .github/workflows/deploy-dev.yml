@@ -32,6 +32,11 @@ jobs:
       - name: Build
         env:
           VITE_CONVEX_URL: ${{ secrets.VITE_CONVEX_URL }}
+          VITE_PRIVY_APP_ID: ${{ secrets.VITE_PRIVY_APP_ID }}
+          VITE_MORPH_HOODI_RPC_URL: ${{ secrets.VITE_MORPH_HOODI_RPC_URL }}
+          VITE_MORPH_HOODI_CHAIN_ID: ${{ secrets.VITE_MORPH_HOODI_CHAIN_ID }}
+          VITE_MORPH_HOODI_EXPLORER: ${{ secrets.VITE_MORPH_HOODI_EXPLORER }}
+          VITE_USDC_ADDRESS: ${{ secrets.VITE_USDC_ADDRESS }}
         run: npm run build
 
       - uses: aws-actions/configure-aws-credentials@v4
