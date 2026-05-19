@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets, useCreateWallet } from "@privy-io/react-auth";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
@@ -21,8 +21,9 @@ export default function Claim() {
   const { ready, authenticated, login, user } = usePrivy();
   const { wallets } = useWallets();
   const upsertUser = useMutation(api.users.upsertUser);
+  const { createWallet } = useCreateWallet();
 
-  // Try multiple sources for the wallet address
+  // Resolve wallet address from multiple sources
   const privyWallet = wallets.find((w) => w.walletClientType === "privy");
   const anyWallet = privyWallet ?? wallets[0];
   const walletAddress =
@@ -31,15 +32,19 @@ export default function Claim() {
       (a): a is Extract<typeof a, { type: "wallet" }> => a.type === "wallet",
     ) as { address?: string } | undefined)?.address;
 
-  // Ensure user record is created when claiming (Claim page isn't wrapped in RequireAuth)
+  // Create wallet if missing, then upsert user record
   useEffect(() => {
     if (!ready || !authenticated || !user) return;
+    if (!walletAddress) {
+      createWallet({ chainType: "ethereum" }).catch(() => {});
+      return;
+    }
     void upsertUser({
       privyId: user.id,
-      walletAddress: walletAddress ?? undefined,
+      walletAddress,
       email: user.email?.address,
     });
-  }, [ready, authenticated, user, walletAddress, upsertUser]);
+  }, [ready, authenticated, user, walletAddress, upsertUser, createWallet]);
 
   const claim = useQuery(
     api.claims.getByToken,

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets, useCreateWallet } from "@privy-io/react-auth";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import Landing from "@/pages/Landing";
@@ -18,8 +18,9 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const upsertUser = useMutation(api.users.upsertUser);
+  const { createWallet } = useCreateWallet();
 
-  // Try multiple sources for the wallet address (Privy may expose it differently)
+  // Resolve wallet address from multiple sources
   const privyWallet = wallets.find((w) => w.walletClientType === "privy");
   const anyWallet = privyWallet ?? wallets[0];
   const walletAddress =
@@ -28,15 +29,20 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
       (a): a is Extract<typeof a, { type: "wallet" }> => a.type === "wallet",
     ) as { address?: string } | undefined)?.address;
 
-  // Phase 1: Create user record immediately on auth (even without wallet)
+  // Create wallet if missing, then upsert user record
   useEffect(() => {
     if (!ready || !authenticated || !user) return;
+    if (!walletAddress) {
+      // Manually trigger embedded wallet creation if auto-create didn't fire
+      createWallet({ chainType: "ethereum" }).catch(() => {});
+      return;
+    }
     void upsertUser({
       privyId: user.id,
-      walletAddress: walletAddress ?? undefined,
+      walletAddress,
       email: user.email?.address,
     });
-  }, [ready, authenticated, user, walletAddress, upsertUser]);
+  }, [ready, authenticated, user, walletAddress, upsertUser, createWallet]);
 
   if (!ready) return <div className="grid h-full place-items-center text-sm opacity-60">Loading…</div>;
   if (!authenticated) return <Navigate to="/" replace />;
