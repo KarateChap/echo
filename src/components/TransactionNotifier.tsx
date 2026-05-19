@@ -72,11 +72,19 @@ export default function TransactionNotifier() {
     const newTxs = txs.filter((tx) => !seenIdsRef.current!.has(tx._id));
     if (newTxs.length === 0) return;
 
+    // Mark all new IDs as seen immediately (even if filtered below)
     for (const tx of newTxs) {
       seenIdsRef.current.add(tx._id);
     }
 
-    const newToasts: Toast[] = newTxs.map((tx) => {
+    // Filter out refund transactions for recipients — only the sender should see refunds
+    const notifiable = newTxs.filter((tx) => {
+      if (tx.error === "REFUND" && !tx.isSender) return false;
+      return true;
+    });
+    if (notifiable.length === 0) return;
+
+    const newToasts: Toast[] = notifiable.map((tx) => {
       const isSent = tx.isSender;
       const failed = tx.status === "failed";
       const isReceived = !failed && !isSent;

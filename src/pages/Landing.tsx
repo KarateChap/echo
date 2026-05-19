@@ -128,7 +128,7 @@ export default function Landing() {
             style={{ background: "radial-gradient(circle, #6366f1 0%, #a855f7 50%, transparent 70%)" }}
           />
 
-          <div className="glass-card space-y-7 p-8 text-center">
+          <div className="glass-card space-y-7 px-5 py-8 sm:px-8 text-center">
             {/* Animated sound-wave logo */}
             <SoundWaveLogo />
 
@@ -173,12 +173,12 @@ export default function Landing() {
                       <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
                     </svg>
                   </div>
-                  <p className="text-sm text-white/50">
+                  <p className="break-all text-sm text-white/50">
                     Enter the 6-digit code sent to{" "}
                     <span className="font-medium text-white/80">{email}</span>
                   </p>
                 </div>
-                <div className="flex justify-center gap-2.5" onPaste={handleOtpPaste}>
+                <div className="flex justify-center gap-2" onPaste={handleOtpPaste}>
                   {otp.map((digit, i) => (
                     <input
                       key={i}
@@ -190,7 +190,7 @@ export default function Landing() {
                       onChange={(e) => handleOtpChange(i, e.target.value)}
                       onKeyDown={(e) => handleOtpKeyDown(i, e)}
                       disabled={loading}
-                      className="glass-input h-12 w-11 text-center text-lg font-semibold tracking-wider"
+                      className="glass-input h-12 w-10 min-w-0 text-center text-lg font-semibold tracking-wider"
                     />
                   ))}
                 </div>
