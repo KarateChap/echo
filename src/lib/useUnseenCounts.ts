@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback } from "react";
+import { useMemo, useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";

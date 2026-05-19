@@ -109,7 +109,7 @@ export default function VoiceHome() {
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<Id<"voiceSessions"> | null>(null);
   const [recipientEmail, setRecipientEmail] = useState("");
-  const [createdRuleId, setCreatedRuleId] = useState<Id<"rules"> | null>(null);
+  const [_createdRuleId, setCreatedRuleId] = useState<Id<"rules"> | null>(null);
   const [createdRecipientName, setCreatedRecipientName] = useState("");
   const [msgElapsed, setMsgElapsed] = useState(0);
   const [copiedField, setCopiedField] = useState<"wallet" | "email" | null>(null);
