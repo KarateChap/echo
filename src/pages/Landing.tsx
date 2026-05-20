@@ -6,26 +6,6 @@ import { AudioLevelProvider } from "@/lib/AudioLevelContext";
 
 type Step = "email" | "otp";
 
-function SoundWaveLogo() {
-  const bars = [0.5, 0.8, 1, 0.7, 0.9, 0.6, 0.4];
-  return (
-    <div className="mx-auto flex h-10 items-end justify-center gap-[3px]">
-      {bars.map((scale, i) => (
-        <div
-          key={i}
-          className="w-[3px] rounded-full"
-          style={{
-            height: `${scale * 40}px`,
-            background: "linear-gradient(to top, #6366f1, #a855f7)",
-            animation: `wave-bar 1.2s ease-in-out ${i * 0.1}s infinite`,
-            opacity: 0.8,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export default function Landing() {
   const { ready, authenticated } = usePrivy();
   const { sendCode, loginWithCode } = useLoginWithEmail();
