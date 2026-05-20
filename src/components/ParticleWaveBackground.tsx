@@ -1,10 +1,11 @@
 import { useRef, useEffect } from "react";
 import { useAudioLevelContext } from "@/lib/AudioLevelContext";
+import { isMobile } from "@/lib/isMobile";
 
 /* ── Grid & camera ────────────────────────────────────────── */
-const COLS = 50;
-const ROWS = 70;
-const SPACING = 16; // world-space gap between particles
+const COLS = isMobile ? 25 : 50;
+const ROWS = isMobile ? 35 : 70;
+const SPACING = isMobile ? 32 : 16; // world-space gap between particles
 const FOCAL = 260;
 const CAM_TILT = 0.32; // radians – shallow angle so grid fills full viewport height
 const CAM_Y = -340; // camera height above the plane
@@ -149,9 +150,17 @@ export default function ParticleWaveBackground() {
 
     let lastFrameTime = 0;
     let smoothMouseActive = 0;
+    let frameCount = 0;
 
     function frame(now: number) {
       if (reducedMotion.current) {
+        rafRef.current = requestAnimationFrame(frame);
+        return;
+      }
+
+      // On mobile, skip every other frame when idle to save CPU
+      frameCount++;
+      if (isMobile && levelRef.current < 0.05 && frameCount % 2 !== 0) {
         rafRef.current = requestAnimationFrame(frame);
         return;
       }
@@ -326,6 +335,8 @@ export default function ParticleWaveBackground() {
 
       // Subtle connecting lines between neighbours for the "fabric" look
       // Only draw for nearby rows (near camera) to save perf
+      // Skip entirely on mobile for performance
+      if (!isMobile) {
       ctx.globalCompositeOperation = "lighter";
       const lineStartRow = Math.max(0, ROWS - 20);
       for (let r = lineStartRow; r < ROWS - 1; r++) {
@@ -402,6 +413,7 @@ export default function ParticleWaveBackground() {
           }
         }
       }
+      } // end !isMobile connecting lines
 
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";

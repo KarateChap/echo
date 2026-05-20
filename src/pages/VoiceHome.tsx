@@ -25,10 +25,25 @@ import { useCurrency, formatFiatValue } from "@/lib/currencyConfig";
 import { useConversationListener } from "@/lib/useConversationListener";
 import { useVoiceEmail } from "@/lib/useVoiceEmail";
 import { useConversationAgent } from "@/lib/useConversationAgent";
+import { useStreamingAudio } from "@/lib/useStreamingAudio";
+import { isMobile } from "@/lib/isMobile";
 import type { Id } from "../../convex/_generated/dataModel";
 
 type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "funding" | "done" | "error" | "chat-listening" | "chat-processing" | "chat-speaking";
 type ProcessingSubStep = "uploading" | "transcribing" | "parsing";
+
+const SPEECH_THRESHOLD = 0.25;
+const MAX_NOISE_DISCARDS = 3;
+
+/** Returns true if the transcript looks like garbage from background noise. */
+function isGarbageTranscript(transcript: string): boolean {
+  const trimmed = transcript.trim();
+  if (trimmed.length < 3) return true;
+  // High ratio of non-Latin characters (Japanese, Chinese, Korean picked up from TV/videos)
+  const nonLatin = trimmed.replace(/[\x00-\x7F\u00C0-\u024F]/g, "");
+  if (nonLatin.length / trimmed.length > 0.5) return true;
+  return false;
+}
 
 function StepDot({ active, done }: { active: boolean; done: boolean }) {
   return (
@@ -151,7 +166,8 @@ export default function VoiceHome() {
 
   // Open/close a passive mic stream during voice-interactive steps
   // so the orb visualizer responds to the user's voice
-  const needsPassiveMic = ["confirm", "ask-email", "ask-voice-msg", "done", "error", "chat-speaking"].includes(step);
+  // On mobile, skip passive mic — it's only for orb visualization and not worth the extra AudioContext + getUserMedia overhead
+  const needsPassiveMic = !isMobile && ["confirm", "ask-email", "ask-voice-msg", "done", "error", "chat-speaking"].includes(step);
   useEffect(() => {
     if (!needsPassiveMic) {
       setPassiveMicStream((prev) => {
@@ -262,6 +278,12 @@ export default function VoiceHome() {
     voiceGender,
     onPaymentIntent: useCallback(async (intent: any, token?: string, aiReadbackText?: string) => {
       if (!user) return;
+      // Safety net: block recurring intents without totalOccurrences
+      if (intent.kind === "recurring" && (!intent.totalOccurrences || intent.totalOccurrences <= 0)) {
+        setErrorMessage("Please specify how many times or for how long (e.g. 'for 6 months' or '3 times').");
+        setStep("error");
+        return;
+      }
       try {
         const name = intent.recipient?.name ?? "recipient";
         const amount = (intent.amount ?? intent.amountUsdc)?.toLocaleString() ?? "?";
@@ -306,13 +328,20 @@ export default function VoiceHome() {
   chatAgentResetRef.current = chatAgent.reset;
 
   // Auto-resume listening after chat TTS finishes
+  const recorderStartRef = useRef(recorder.startRecording);
+  recorderStartRef.current = recorder.startRecording;
   useEffect(() => {
     if (step === "chat-speaking" && !chatAgent.isPlayingTts && !chatAgent.isProcessing) {
-      // TTS just finished — resume listening
-      setStep("chat-listening");
-      recorder.startRecording();
+      // TTS just finished — add cooldown before resuming to avoid picking up echo/reverb
+      const timer = setTimeout(() => {
+        if (stepRef.current === "chat-speaking") {
+          setStep("chat-listening");
+          recorderStartRef.current();
+        }
+      }, 800);
+      return () => clearTimeout(timer);
     }
-  }, [step, chatAgent.isPlayingTts, chatAgent.isProcessing, recorder]);
+  }, [step, chatAgent.isPlayingTts, chatAgent.isProcessing]);
 
   // Voice email capture — active during ask-email step
   const voiceEmail = useVoiceEmail({
@@ -336,7 +365,20 @@ export default function VoiceHome() {
   const elevenLabsPlayedRef = useRef(false);
   const hasPlayedFallbackRef = useRef<string | null>(null);
 
-  // Primary: fetch ElevenLabs TTS as soon as readbackText is available (faster than stored OpenAI audio)
+  // Streaming audio helper for readback TTS
+  const { playStream: playReadbackStream, stop: stopReadbackStream } = useStreamingAudio({
+    onStart: (audio) => {
+      audioRef.current = audio;
+      setTtsAudioEl(audio);
+    },
+    onEnd: () => {
+      setTtsAudioEl(null);
+      setTtsHasPlayed(true);
+      audioRef.current = null;
+    },
+  });
+
+  // Primary: fetch streaming ElevenLabs TTS as soon as readbackText is available
   useEffect(() => {
     const text = session?.readbackText;
     if (!text || text === hasPlayedRef.current || !convexSiteUrl) return;
@@ -353,23 +395,15 @@ export default function VoiceHome() {
           body: JSON.stringify({ text, voice: voiceGender }),
         });
         if (!res.ok || cancelled) return;
-        const blob = await res.blob();
-        if (cancelled) return;
-        const blobUrl = URL.createObjectURL(blob);
-        const audio = new Audio(blobUrl);
-        audioRef.current = audio;
-        setTtsAudioEl(audio);
-        audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); URL.revokeObjectURL(blobUrl); });
-        audio.addEventListener("pause", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
-        audio.play().catch(() => { setTtsHasPlayed(true); });
+        await playReadbackStream(res);
       } catch {
-        elevenLabsPlayedRef.current = false; // allow fallback to stored audio
+        elevenLabsPlayedRef.current = false;
         setTtsHasPlayed(true);
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [session?.readbackText, convexSiteUrl, voiceGender]);
+    return () => { cancelled = true; stopReadbackStream(); };
+  }, [session?.readbackText, convexSiteUrl, voiceGender, playReadbackStream, stopReadbackStream]);
 
   // Fallback: if ElevenLabs TTS didn't play and stored readbackUrl becomes available, use it
   useEffect(() => {
@@ -413,6 +447,12 @@ export default function VoiceHome() {
           setStep("error");
           return;
         }
+        // Safety net: block recurring intents without totalOccurrences
+        if (intent.kind === "recurring" && (!intent.totalOccurrences || intent.totalOccurrences <= 0)) {
+          setErrorMessage("Please specify how many times or for how long (e.g. 'for 6 months' or '3 times').");
+          setStep("error");
+          return;
+        }
       } catch {
         setErrorMessage("Failed to parse your instruction. Please try again.");
         setStep("error");
@@ -443,8 +483,10 @@ export default function VoiceHome() {
   }, [user, recorder]);
 
   // Handle orb tap — enter chat mode (no token selected)
+  const noiseDiscardCountRef = useRef(0);
   const handleOrbTap = useCallback(async () => {
     if (!user || step !== "idle") return;
+    noiseDiscardCountRef.current = 0;
     setStep("chat-listening");
     await recorder.startRecording();
   }, [user, step, recorder]);
@@ -454,15 +496,69 @@ export default function VoiceHome() {
   stepRef.current = step;
   chatAutoStopRef.current = async () => {
     if (stepRef.current !== "chat-listening") return;
-    await recorder.stopRecording();
-    const transcript = chatAutoStop.interimTranscript;
-    if (!transcript || transcript.trim().length < 2) {
-      // Nothing said — resume listening
-      setStep("chat-listening");
-      await recorder.startRecording();
+    const peakLevel = chatAutoStop.peakAudioLevel;
+    const blob = await recorder.stopRecording();
+    let transcript = chatAutoStop.interimTranscript;
+
+    // Speech energy gate — if audio never reached speech level, discard
+    if (peakLevel < SPEECH_THRESHOLD) {
+      noiseDiscardCountRef.current++;
+      if (noiseDiscardCountRef.current >= MAX_NOISE_DISCARDS) {
+        resetFlow();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+      if (stepRef.current === "chat-listening") {
+        await recorder.startRecording();
+      }
       return;
     }
-    setStep("chat-processing");
+
+    // If Web Speech API failed to produce a transcript but we have audio,
+    // fall back to Whisper transcription via the backend
+    if ((!transcript || transcript.trim().length < 2) && blob && blob.size > 8000 && peakLevel >= SPEECH_THRESHOLD) {
+      try {
+        setStep("chat-processing");
+        const uploadUrl = await generateUploadUrl();
+        const result = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": blob.type },
+          body: blob,
+        });
+        const { storageId } = (await result.json()) as { storageId: string };
+        // Use the Whisper transcription endpoint
+        const whisperRes = await fetch(`${convexSiteUrl}/api/transcribeForChat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ storageId }),
+        });
+        if (whisperRes.ok) {
+          const data = (await whisperRes.json()) as { transcript: string };
+          if (data.transcript && data.transcript.trim().length >= 2) {
+            transcript = data.transcript;
+          }
+        }
+      } catch {
+        // Fallback transcription failed — restart listening
+      }
+    }
+
+    if (!transcript || transcript.trim().length < 2 || isGarbageTranscript(transcript)) {
+      // Nothing meaningful captured — wait briefly then resume listening
+      noiseDiscardCountRef.current++;
+      if (noiseDiscardCountRef.current >= MAX_NOISE_DISCARDS) {
+        resetFlow();
+        return;
+      }
+      if (stepRef.current === "chat-processing") setStep("chat-listening");
+      await new Promise((r) => setTimeout(r, 500));
+      if (stepRef.current === "chat-listening") {
+        await recorder.startRecording();
+      }
+      return;
+    }
+    noiseDiscardCountRef.current = 0;
+    if (stepRef.current !== "chat-processing") setStep("chat-processing");
     await chatAgent.sendMessage(transcript, balanceSummary);
     // After sendMessage, TTS plays automatically via the hook
     setStep("chat-speaking");
@@ -657,6 +753,7 @@ export default function VoiceHome() {
     setTtsAudioEl(null);
     setTtsHasPlayed(false);
     chatAgent.reset();
+    noiseDiscardCountRef.current = 0;
     if (recorder.status === "recording") recorder.stopRecording();
   }
 
@@ -746,10 +843,10 @@ export default function VoiceHome() {
   }, [draggedTokenInfo, balances]);
 
   return (
-    <div className="mx-auto flex min-h-full max-w-md flex-col px-6 py-6">
+    <div className="mx-auto flex min-h-full max-w-md flex-col px-4 py-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Echo</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {/* Voice gender segmented toggle */}
           <div
             className="relative flex items-center rounded-full p-0.5"
@@ -771,7 +868,7 @@ export default function VoiceHome() {
                   boxShadow: voiceGender === g ? "0 0 8px rgba(99, 102, 241, 0.25)" : "none",
                 }}
               >
-                <span style={{ fontSize: "13px" }}>{g === "female" ? "♀" : "♂"}</span>
+                <span className="inline-flex items-center" style={{ fontSize: "13px", lineHeight: 1 }}>{g === "female" ? "♀" : "♂"}</span>
                 {g === "female" ? "Female" : "Male"}
               </button>
             ))}
@@ -780,7 +877,7 @@ export default function VoiceHome() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 pt-12">
+      <main className="flex flex-1 flex-col items-center justify-center gap-4 pt-6">
 
         {/* === ORB + TOKENS: shown during idle, recording, processing, and chat === */}
         {(step === "idle" || step === "recording" || step === "processing" || isChatMode) && (
@@ -1196,6 +1293,7 @@ export default function VoiceHome() {
                   onClick={async () => {
                     const text = session?.readbackText;
                     if (!text || !convexSiteUrl) return;
+                    stopReadbackStream();
                     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
                     try {
                       const res = await fetch(`${convexSiteUrl}/api/tts`, {
@@ -1204,13 +1302,7 @@ export default function VoiceHome() {
                         body: JSON.stringify({ text, voice: voiceGender }),
                       });
                       if (!res.ok) return;
-                      const blob = await res.blob();
-                      const blobUrl = URL.createObjectURL(blob);
-                      const audio = new Audio(blobUrl);
-                      audioRef.current = audio;
-                      setTtsAudioEl(audio);
-                      audio.addEventListener("ended", () => { setTtsAudioEl(null); URL.revokeObjectURL(blobUrl); });
-                      audio.play().catch(() => {});
+                      await playReadbackStream(res);
                     } catch {}
                   }}
                   className="glass-nav mr-auto flex items-center gap-1.5 text-xs text-white/50 hover:text-white/70"
@@ -1546,7 +1638,7 @@ export default function VoiceHome() {
             )}
           </button>
         </div>
-        <nav className="flex w-full justify-center gap-5">
+        <nav className="flex w-full justify-center gap-3">
           <Link to="/app/rules" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5">
             Rules
             {unseenRules > 0 && (

@@ -2,6 +2,37 @@ import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { convertFiatToToken } from "./fiatConversion";
+import { extractDelaySeconds } from "./delayExtractor";
+import { extractTokenFromTranscript } from "./tokenExtractor";
+
+// ── Fetch live crypto prices ────────────────────────────────────────────────
+
+export async function fetchCryptoPrices(): Promise<string> {
+  const tokens = ["ethereum", "usd-coin", "tether"];
+  const currencies = "usd,php";
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${tokens.join(",")}&vs_currencies=${currencies}`
+    );
+    if (!res.ok) return "Price data unavailable.";
+    const data = (await res.json()) as Record<string, Record<string, number>>;
+    const lines: string[] = [];
+    const nameMap: Record<string, string> = {
+      ethereum: "ETH",
+      "usd-coin": "USDC",
+      tether: "USDT",
+    };
+    for (const [id, prices] of Object.entries(data)) {
+      const symbol = nameMap[id] ?? id;
+      const usd = prices.usd ? `$${prices.usd.toLocaleString()}` : "N/A";
+      const php = prices.php ? `₱${prices.php.toLocaleString()}` : "N/A";
+      lines.push(`${symbol}: ${usd} / ${php}`);
+    }
+    return lines.join(" | ");
+  } catch {
+    return "Price data unavailable.";
+  }
+}
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -122,10 +153,11 @@ export const upsertChatSession = internalMutation({
 
 // ── System prompt builder ────────────────────────────────────────────────────
 
-function buildChatSystemPrompt(context: {
+export function buildChatSystemPrompt(context: {
   displayName?: string;
   walletAddress?: string;
   balanceSummary?: string;
+  priceSummary?: string;
   recipients: Array<{ name: string; email?: string | null; relationship?: string | null }>;
   rules: Array<{
     kind: string; amountUsdc: number; token: string; status: string;
@@ -194,6 +226,10 @@ Name: ${context.displayName ?? "User"}
 Wallet: ${context.walletAddress ?? "Not set up"}
 ${context.balanceSummary ? `Balances: ${context.balanceSummary}` : "Balances: Loading..."}
 
+=== LIVE CRYPTO PRICES (REAL-TIME, UPDATED NOW) ===
+${context.priceSummary ?? "Unavailable"}
+IMPORTANT: The prices above are REAL, LIVE data fetched just now from CoinGecko. You DO have access to current crypto prices. When users ask "how much is X", "magkano ang X", "what's the price of X", or any price/exchange-rate question, use ONLY the prices listed above. NEVER say you don't have access to live prices. NEVER guess or make up a price. If the data says "Unavailable", tell the user prices are temporarily unavailable and to try again shortly.
+
 === ACTIVE RULES (${activeRules.length}) ===
 ${rulesBlock}
 ${pausedRules.length > 0 ? `\nPaused rules: ${pausedRules.length}` : ""}
@@ -253,6 +289,12 @@ EXAMPLES
 User: "send 1 USDT to Junjun"
 → {"type":"payment_intent","text":"Sending 1 USDT to Junjun.","intent":{"kind":"oneShot","recipient":{"name":"Junjun","hint":""},"amount":1,"amountFiat":null,"fiatCurrency":null,"token":"USDT","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}}
 
+User: "send 1 USDT to Junjun after 30 seconds"
+→ {"type":"payment_intent","text":"Sending 1 USDT to Junjun after 30 seconds.","intent":{"kind":"oneShot","recipient":{"name":"Junjun","hint":""},"amount":1,"amountFiat":null,"fiatCurrency":null,"token":"USDT","schedule":{"kind":"seconds","value":"30"},"condition":null,"durationMinutes":null,"totalOccurrences":null}}
+
+User: "send 5 USDC to Mama in 2 minutes"
+→ {"type":"payment_intent","text":"Sending 5 USDC to Mama in 2 minutes.","intent":{"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":5,"amountFiat":null,"fiatCurrency":null,"token":"USDC","schedule":{"kind":"seconds","value":"120"},"condition":null,"durationMinutes":null,"totalOccurrences":null}}
+
 User: "padala 10k kay mama every month, 6 times"
 → {"type":"payment_intent","text":"Magpapadala ng 10,000 USDC kay Mama, monthly, 6 beses.","intent":{"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"amountFiat":null,"fiatCurrency":null,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":6}}
 
@@ -265,17 +307,27 @@ User: "what's my balance?"
 User: "how much did I send to mama?"
 → {"type":"answer","text":"You sent 5,000 USDC to Mama on May 1."}
 
+User: "how much is 1 USDT right now?"
+→ {"type":"answer","text":"1 USDT is currently worth about $1.00 or ₱56.18."}
+
+User: "magkano ang presyo ng isang usdt ngayon?"
+→ {"type":"answer","text":"Ang 1 USDT ngayon ay nasa ₱56.18 o $1.00."}
+
 ────────────────────────────────
 SCHEDULE RULES for payment_intent
 ────────────────────────────────
 - schedule.kind MUST be one of: "monthly", "weekly", "daily", "biweekly", "cron", "once", "seconds", "yearly". No other values allowed.
-- "every N seconds" or sub-minute intervals → kind: "seconds", value: N as string (e.g. "30")
+- "after N seconds", "in N seconds", "after N minutes", "in N minutes" → kind: "oneShot" with schedule: {"kind":"seconds","value":"<totalSeconds>"}. Convert minutes to seconds (e.g. "in 2 minutes" → value:"120"). This is a SINGLE delayed payment, NOT recurring.
+- "every N seconds" or sub-minute recurring intervals → kind: "recurring" with schedule: {"kind":"seconds","value":"N"}
 - "every N minutes" → kind: "cron", value: cron expression (e.g. "*/5 * * * *")
 - "every day" → kind: "daily", value: "09:00"
 - "every week on Monday" → kind: "weekly", value: "Monday"
 - "every month on the 1st" → kind: "monthly", value: "1"
-- "once" or immediate → schedule: null (oneShot with no schedule)
-- For recurring rules, totalOccurrences is REQUIRED. Calculate from duration ÷ interval.
+- Immediate one-time with NO delay → schedule: null (oneShot with no schedule)
+- For recurring rules, totalOccurrences is REQUIRED and MUST be a positive integer. Calculate from duration ÷ interval.
+  If the user does NOT specify how many times or for how long, do NOT return payment_intent.
+  Instead return "answer" type asking them to specify (e.g. "How many times should I send this?" or "For how long?").
+  NEVER set totalOccurrences to null for recurring rules.
 - durationMinutes: set when user specifies duration (e.g. "within 1 minute" → 1)
 
 OTHER RULES:
@@ -323,11 +375,15 @@ export const chat = action({
       timestamp: Date.now(),
     });
 
+    // Fetch live crypto prices
+    const priceSummary = await fetchCryptoPrices();
+
     // Build system prompt with account context
     const systemPrompt = buildChatSystemPrompt({
       displayName: context.displayName ?? undefined,
       walletAddress: context.walletAddress ?? undefined,
       balanceSummary: balanceSummary ?? undefined,
+      priceSummary,
       recipients: context.recipients.map((r: any) => ({
         name: r.name,
         email: r.email,
@@ -376,8 +432,25 @@ export const chat = action({
     try {
       parsed = JSON.parse(rawContent);
     } catch {
-      // If GPT didn't return valid JSON, wrap it as an answer
-      parsed = { type: "answer", text: rawContent };
+      // GPT sometimes returns natural text followed by a JSON blob.
+      // Try to extract the JSON portion and use the preceding text as-is.
+      const jsonStart = rawContent.indexOf("{");
+      if (jsonStart > 0) {
+        const textBefore = rawContent.slice(0, jsonStart).trim();
+        try {
+          const jsonPart = JSON.parse(rawContent.slice(jsonStart));
+          parsed = {
+            type: jsonPart.type ?? "answer",
+            text: jsonPart.text ?? textBefore,
+            intent: jsonPart.intent,
+          };
+        } catch {
+          // Still can't parse — strip any JSON-like fragments from the text
+          parsed = { type: "answer", text: textBefore || rawContent.replace(/\{[\s\S]*$/, "").trim() };
+        }
+      } else {
+        parsed = { type: "answer", text: rawContent };
+      }
     }
 
     // ── Safety net: detect if GPT returned "answer" but user clearly wanted a payment ──
@@ -405,9 +478,10 @@ Return ONLY valid JSON with this exact schema:
 
 Rules:
 - Default token to USDC if not specified.
-- "every N seconds" → schedule: {"kind":"seconds","value":"N"}
+- "after N seconds/minutes", "in N seconds/minutes" → kind: "oneShot" with schedule: {"kind":"seconds","value":"<totalSeconds>"}. This is a SINGLE delayed payment.
+- "every N seconds" → kind: "recurring" with schedule: {"kind":"seconds","value":"N"}
 - For recurring, totalOccurrences is required. Calculate from duration ÷ interval.
-- If immediate/one-time, set schedule to null and kind to "oneShot".
+- If immediate/one-time with NO delay, set schedule to null and kind to "oneShot".
 - Return ONLY the JSON object, nothing else.`;
 
         // Combine recent conversation for context
@@ -452,6 +526,22 @@ Rules:
       }
     }
 
+    // Post-process: fix GPT missing "after N seconds/minutes" delay in payment intents.
+    if (parsed.type === "payment_intent" && parsed.intent?.kind === "oneShot" && !parsed.intent.schedule) {
+      const delaySecs = extractDelaySeconds(message);
+      if (delaySecs) {
+        parsed.intent.schedule = { kind: "seconds", value: String(delaySecs) };
+      }
+    }
+
+    // Post-process: fix GPT defaulting token to USDC when user explicitly named a different token.
+    if (parsed.type === "payment_intent" && parsed.intent) {
+      const extractedToken = extractTokenFromTranscript(message);
+      if (extractedToken && (parsed.intent.token === "USDC" || !parsed.intent.token)) {
+        parsed.intent.token = extractedToken;
+      }
+    }
+
     // Fiat-to-token conversion for payment intents (e.g., "20 pesos worth of USDT")
     if (parsed.type === "payment_intent" && parsed.intent?.amountFiat && parsed.intent?.fiatCurrency) {
       const token = parsed.intent.token ?? "USDC";
@@ -474,6 +564,31 @@ Rules:
         const tok = parsed.intent.token ?? "USDC";
         parsed.text = `Sige, magpapadala ng ${amount} ${tok} kay ${name}. I-confirm mo lang.`;
       }
+    }
+
+    // Final safety: strip any JSON fragments from text (for all response types)
+    if (parsed.text && (parsed.text.includes("{") || parsed.text.includes("}"))) {
+      // Remove any JSON object substring from the text
+      parsed.text = parsed.text.replace(/\{[^{}]*("type"|"kind"|"intent"|"recipient")[^{}]*\}/g, "").trim();
+      // If nested JSON remains, strip everything from first { onward
+      if (parsed.text.includes("{")) {
+        parsed.text = parsed.text.replace(/\{[\s\S]*$/, "").trim();
+      }
+      // If text is now empty, provide a fallback
+      if (!parsed.text) {
+        parsed.text = parsed.type === "payment_intent" && parsed.intent
+          ? `Sige, magpapadala ng ${(parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?"} ${parsed.intent.token ?? "USDC"} kay ${parsed.intent.recipient?.name ?? "recipient"}. I-confirm mo lang.`
+          : "Okay, noted.";
+      }
+    }
+
+    // Require totalOccurrences for recurring payment intents — ask for clarification if missing
+    if (parsed.type === "payment_intent" && parsed.intent?.kind === "recurring"
+        && (!parsed.intent.totalOccurrences || parsed.intent.totalOccurrences <= 0)) {
+      parsed = {
+        type: "answer",
+        text: "How many times should I send this, or for how long? For example, 'for 6 months' or '3 times'.",
+      };
     }
 
     // Add assistant response to messages

@@ -2,6 +2,8 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { convertFiatToToken } from "./fiatConversion";
+import { extractDelaySeconds } from "./delayExtractor";
+import { extractTokenFromTranscript } from "./tokenExtractor";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -364,7 +366,7 @@ export const parseIntent = internalAction({
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-4o",
           temperature: 0,
           messages: [
             { role: "system", content: systemPrompt },
@@ -428,6 +430,21 @@ export const parseIntent = internalAction({
         }
         if (parsed.schedule && (!parsed.schedule.value || parsed.schedule.value.trim() === "")) {
           throw new Error("Schedule value is required");
+        }
+
+        // Post-process: fix GPT missing "after N seconds/minutes" delay.
+        // GPT-4o-mini often ignores "after 30 seconds" and returns schedule=null.
+        if (parsed.kind === "oneShot" && !parsed.schedule) {
+          const delaySecs = extractDelaySeconds(transcript);
+          if (delaySecs) {
+            parsed.schedule = { kind: "seconds", value: String(delaySecs) };
+          }
+        }
+
+        // Post-process: fix GPT defaulting token to USDC when user explicitly named a different token.
+        const extractedToken = extractTokenFromTranscript(transcript);
+        if (extractedToken && (parsed.token === "USDC" || !parsed.token)) {
+          parsed.token = extractedToken;
         }
 
         // Post-process: fix common GPT cron mistakes for sub-daily patterns.

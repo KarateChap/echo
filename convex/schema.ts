@@ -9,6 +9,8 @@ export default defineSchema({
     displayName: v.optional(v.string()),
     preferredLanguage: v.optional(v.string()),
     voiceGender: v.optional(v.union(v.literal("female"), v.literal("male"))),
+    lastSeenActivity: v.optional(v.number()),
+    lastSeenRules: v.optional(v.number()),
   }).index("by_privyId", ["privyId"])
     .index("by_email", ["email"]),
 

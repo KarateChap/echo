@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { isMobile } from "./isMobile";
+import { acquireSpeechLock, releaseSpeechLock } from "./speechRecognitionLock";
 
 // --- Tuneable constants ---
-const STABLE_TRANSCRIPT_MS = 1500; // ms transcript must be unchanged before checking completeness
-const MIN_RECORDING_MS = 2000; // don't auto-stop before this
+const DEFAULT_STABLE_TRANSCRIPT_MS = isMobile ? 2500 : 1500; // ms transcript must be unchanged before checking completeness
+const CHAT_STABLE_TRANSCRIPT_MS = isMobile ? 2000 : 1500; // silence detection for chat mode — longer on mobile where speech recognition gaps are wider
+const MIN_RECORDING_MS = isMobile ? 3000 : 2000; // don't auto-stop before this
 const MIN_TRANSCRIPT_LEN = 5; // need at least this many chars
 const LLM_TIMEOUT_MS = 3000; // abort LLM call after this
-const CHECK_INTERVAL_MS = 300; // how often to check transcript stability
+const CHECK_INTERVAL_MS = isMobile ? 500 : 300; // how often to check transcript stability
+const SILENCE_LEVEL = 0.12; // audio level below this = silence
+const SPEECH_THRESHOLD = 0.25; // peak audio must exceed this to count as real speech
+const SILENCE_TIMEOUT_MS = isMobile ? 2500 : 2000; // auto-stop after this much continuous silence (fallback when SpeechRecognition produces no transcript)
+const MAX_RECORDING_MS = 15_000; // absolute max — auto-stop regardless after 15 seconds
 
 interface AutoStopOptions {
   enabled: boolean;
@@ -22,6 +29,7 @@ interface AutoStopResult {
   interimTranscript: string;
   isCheckingCompleteness: boolean;
   supported: boolean;
+  peakAudioLevel: number;
 }
 
 const SpeechRecognitionClass =
@@ -51,8 +59,12 @@ export function useAutoStopDetection({
   const lastTranscriptChangeRef = useRef<number>(0); // timestamp of last transcript change
   const lastCheckedTranscriptRef = useRef(""); // avoid re-checking same text
   const onAutoStopRef = useRef(onAutoStop);
+  const lockIdRef = useRef(`autostop-${Math.random().toString(36).slice(2)}`);
 
   const skipCheckRef = useRef(skipCompletenessCheck);
+  const lastLoudRef = useRef<number>(0); // timestamp of last above-silence audio level
+  const hadAnyAudioRef = useRef(false); // true once audio level has been above silence
+  const peakLevelRef = useRef(0); // tracks peak audio level during session
 
   elapsedRef.current = elapsedMs;
   onAutoStopRef.current = onAutoStop;
@@ -100,6 +112,7 @@ export function useAutoStopDetection({
         try { recognitionRef.current.stop(); } catch {}
         recognitionRef.current = null;
       }
+      releaseSpeechLock(lockIdRef.current);
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -111,15 +124,21 @@ export function useAutoStopDetection({
       transcriptRef.current = "";
       lastTranscriptChangeRef.current = 0;
       lastCheckedTranscriptRef.current = "";
+      lastLoudRef.current = 0;
+      hadAnyAudioRef.current = false;
+      peakLevelRef.current = 0;
       return;
     }
 
     stoppedRef.current = false;
     checkingRef.current = false;
     lastTranscriptChangeRef.current = Date.now();
+    lastLoudRef.current = Date.now();
+    hadAnyAudioRef.current = false;
+    peakLevelRef.current = 0;
 
     // --- Web Speech API for real-time transcript ---
-    if (SpeechRecognitionClass) {
+    if (SpeechRecognitionClass && acquireSpeechLock(lockIdRef.current)) {
       const recognition = new SpeechRecognitionClass();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -153,22 +172,51 @@ export function useAutoStopDetection({
       recognitionRef.current = recognition;
     }
 
-    // --- Transcript stability polling ---
-    // Instead of audio-level silence detection, detect when the transcript
-    // hasn't changed for STABLE_TRANSCRIPT_MS — a reliable signal that
-    // the user stopped speaking.
+    // --- Transcript stability polling + audio-level silence fallback ---
     intervalRef.current = window.setInterval(() => {
       if (stoppedRef.current || checkingRef.current) return;
 
       const elapsed = elapsedRef.current;
       const transcript = transcriptRef.current;
       const timeSinceChange = Date.now() - lastTranscriptChangeRef.current;
+      const now = Date.now();
 
-      // Guards
+      // Track audio level for silence-based fallback
+      const currentLevel = _audioLevelRef.current;
+      if (currentLevel > peakLevelRef.current) {
+        peakLevelRef.current = currentLevel;
+      }
+      if (currentLevel > SILENCE_LEVEL) {
+        lastLoudRef.current = now;
+        hadAnyAudioRef.current = true;
+      }
+
+      // Guard: don't auto-stop too early
       if (elapsed < MIN_RECORDING_MS) return;
+
+      // === Fallback 1: absolute max recording timeout ===
+      if (elapsed >= MAX_RECORDING_MS) {
+        stoppedRef.current = true;
+        onAutoStopRef.current();
+        return;
+      }
+
+      // === Fallback 2: audio-level silence (for when SpeechRecognition fails) ===
+      // Only in chat mode (skipCompletenessCheck), and only after user has spoken
+      if (skipCheckRef.current && hadAnyAudioRef.current && transcript.length < MIN_TRANSCRIPT_LEN) {
+        const silenceDuration = now - lastLoudRef.current;
+        if (silenceDuration >= SILENCE_TIMEOUT_MS) {
+          stoppedRef.current = true;
+          onAutoStopRef.current();
+          return;
+        }
+      }
+
+      // === Primary: transcript stability detection ===
       if (transcript.length < MIN_TRANSCRIPT_LEN) return;
-      if (transcript === lastCheckedTranscriptRef.current) return; // already checked this exact text
-      if (timeSinceChange < STABLE_TRANSCRIPT_MS) return;
+      if (transcript === lastCheckedTranscriptRef.current) return;
+      const stableMs = skipCheckRef.current ? CHAT_STABLE_TRANSCRIPT_MS : DEFAULT_STABLE_TRANSCRIPT_MS;
+      if (timeSinceChange < stableMs) return;
 
       // Transcript has been stable long enough
       lastCheckedTranscriptRef.current = transcript;
@@ -187,6 +235,7 @@ export function useAutoStopDetection({
         try { recognitionRef.current.stop(); } catch {}
         recognitionRef.current = null;
       }
+      releaseSpeechLock(lockIdRef.current);
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -194,5 +243,5 @@ export function useAutoStopDetection({
     };
   }, [enabled, checkCompleteness]);
 
-  return { interimTranscript, isCheckingCompleteness, supported };
+  return { interimTranscript, isCheckingCompleteness, supported, peakAudioLevel: peakLevelRef.current };
 }

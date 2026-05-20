@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { acquireSpeechLock, releaseSpeechLock } from "./speechRecognitionLock";
 
 const STARTUP_DELAY_MS = 2000; // ignore results briefly after first enabling or after TTS ends
 const START_RETRY_DELAY_MS = 500;
@@ -86,6 +87,7 @@ export function useConversationListener({
   const commandMapRef = useRef(commandMap);
   const ttsPlayingRef = useRef(ttsPlaying);
   const pendingTranscriptsRef = useRef<string[]>([]);
+  const lockIdRef = useRef(`convlistener-${Math.random().toString(36).slice(2)}`);
 
   // Keep refs in sync without restarting recognition
   currentStepRef.current = currentStep;
@@ -143,6 +145,7 @@ export function useConversationListener({
 
   const startRecognition = useCallback(() => {
     if (!SpeechRecognitionClass) return;
+    if (!acquireSpeechLock(lockIdRef.current)) return;
 
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
@@ -193,6 +196,7 @@ export function useConversationListener({
         try { recognitionRef.current.stop(); } catch {}
         recognitionRef.current = null;
       }
+      releaseSpeechLock(lockIdRef.current);
       firedRef.current = false;
       return;
     }
@@ -212,6 +216,7 @@ export function useConversationListener({
           try { recognitionRef.current.stop(); } catch {}
           recognitionRef.current = null;
         }
+        releaseSpeechLock(lockIdRef.current);
       };
     }
 
@@ -225,6 +230,7 @@ export function useConversationListener({
         try { recognitionRef.current.stop(); } catch {}
         recognitionRef.current = null;
       }
+      releaseSpeechLock(lockIdRef.current);
     };
   }, [enabled, startRecognition]);
 }

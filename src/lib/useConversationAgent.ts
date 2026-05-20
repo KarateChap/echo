@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import { useStreamingAudio } from "./useStreamingAudio";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -36,8 +37,18 @@ export function useConversationAgent({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPlayingTts, setIsPlayingTts] = useState(false);
   const [lastResponse, setLastResponse] = useState<string>("");
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const cancelledRef = useRef(false);
+
+  const { playStream, stop: stopStreamAudio } = useStreamingAudio({
+    onStart: (audio) => {
+      setIsPlayingTts(true);
+      onTtsStart(audio);
+    },
+    onEnd: () => {
+      setIsPlayingTts(false);
+      onTtsEnd();
+    },
+  });
 
   const playTts = useCallback(
     async (text: string) => {
@@ -54,41 +65,13 @@ export function useConversationAgent({
           onTtsEnd();
           return;
         }
-        const blob = await res.blob();
-        if (cancelledRef.current) {
-          setIsPlayingTts(false);
-          onTtsEnd();
-          return;
-        }
-        const blobUrl = URL.createObjectURL(blob);
-        const audio = new Audio(blobUrl);
-        audioRef.current = audio;
-        onTtsStart(audio);
-
-        audio.addEventListener("ended", () => {
-          setIsPlayingTts(false);
-          audioRef.current = null;
-          onTtsEnd();
-          URL.revokeObjectURL(blobUrl);
-        });
-        audio.addEventListener("error", () => {
-          setIsPlayingTts(false);
-          audioRef.current = null;
-          onTtsEnd();
-          URL.revokeObjectURL(blobUrl);
-        });
-
-        audio.play().catch(() => {
-          setIsPlayingTts(false);
-          audioRef.current = null;
-          onTtsEnd();
-        });
+        await playStream(res);
       } catch {
         setIsPlayingTts(false);
         onTtsEnd();
       }
     },
-    [convexSiteUrl, voiceGender, onTtsStart, onTtsEnd],
+    [convexSiteUrl, voiceGender, onTtsEnd, playStream],
   );
 
   const sendMessage = useCallback(
@@ -100,7 +83,8 @@ export function useConversationAgent({
       setIsProcessing(true);
 
       try {
-        const res = await fetch(`${convexSiteUrl}/api/chat`, {
+        // Use the streaming chat endpoint for lower latency
+        const res = await fetch(`${convexSiteUrl}/api/chat-stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -114,12 +98,10 @@ export function useConversationAgent({
         setIsProcessing(false);
 
         if (data.type === "payment_intent" && data.intent) {
-          // Hand off to payment flow immediately — the confirm view handles its own TTS
           onPaymentIntent(data.intent, data.intent.token, data.text);
           return;
         }
 
-        // Only add to message history for non-payment responses
         const assistantMsg: ChatMessage = { role: "assistant", text: data.text };
         setMessages((prev) => [...prev, assistantMsg]);
         setLastResponse(data.text);
@@ -130,7 +112,7 @@ export function useConversationAgent({
           return;
         }
 
-        // Regular answer — play TTS, then caller resumes listening
+        // Regular answer — play streaming TTS
         await playTts(data.text);
       } catch {
         setIsProcessing(false);
@@ -142,29 +124,20 @@ export function useConversationAgent({
   );
 
   const stopTts = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
-    }
+    stopStreamAudio();
     setIsPlayingTts(false);
     onTtsEnd();
-  }, [onTtsEnd]);
+  }, [onTtsEnd, stopStreamAudio]);
 
   const reset = useCallback(() => {
     cancelledRef.current = true;
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
-    }
+    stopStreamAudio();
     setMessages([]);
     setIsProcessing(false);
     setIsPlayingTts(false);
     setLastResponse("");
-    // Reset cancelled flag for next use
     setTimeout(() => { cancelledRef.current = false; }, 0);
-  }, []);
+  }, [stopStreamAudio]);
 
   return {
     messages,

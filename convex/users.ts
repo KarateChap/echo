@@ -105,6 +105,22 @@ export const updateVoiceGender = mutation({
   },
 });
 
+export const markSectionSeen = mutation({
+  args: {
+    privyId: v.string(),
+    section: v.union(v.literal("activity"), v.literal("rules")),
+  },
+  handler: async (ctx, { privyId, section }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_privyId", (q) => q.eq("privyId", privyId))
+      .unique();
+    if (!user) throw new Error("User not found");
+    const field = section === "activity" ? "lastSeenActivity" : "lastSeenRules";
+    await ctx.db.patch(user._id, { [field]: Date.now() });
+  },
+});
+
 export const getByPrivyId = query({
   args: { privyId: v.string(), email: v.optional(v.string()) },
   handler: async (ctx, { privyId, email }) => {

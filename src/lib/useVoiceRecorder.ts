@@ -86,7 +86,7 @@ export function useVoiceRecorder() {
         if (elapsed >= SOFT_CAP_MS && recorder.state === "recording") {
           recorder.stop();
         }
-      }, 100);
+      }, 500);
     } catch (e) {
       setStatus("error");
       setError(e instanceof Error ? e.message : "Mic permission denied");

@@ -1,4 +1,5 @@
 import { useRef, useEffect, type MutableRefObject } from "react";
+import { isMobile } from "@/lib/isMobile";
 
 interface Props {
   levelRef: MutableRefObject<number>;
@@ -12,6 +13,18 @@ interface Props {
 }
 
 const TAU = Math.PI * 2;
+const MAX_DPR = isMobile ? 2 : 3;
+const WAVE_STEPS = isMobile ? 90 : 180;
+
+// On mobile use fewer waves and skip the most complex ones
+const ALL_WAVE_CONFIGS = [
+  { freq: 3.0, ampScale: 1.0, speed: 2.5, phase: 0, color: [255, 255, 255], width: 2.5, glow: 16 },
+  { freq: 4.2, ampScale: 0.8, speed: 2.0, phase: 1.0, color: [180, 220, 255], width: 2.0, glow: 14 },
+  { freq: 5.0, ampScale: 0.65, speed: 3.0, phase: 2.2, color: [140, 130, 255], width: 1.8, glow: 12 },
+  { freq: 2.2, ampScale: 0.9, speed: 1.6, phase: 3.5, color: [180, 140, 255], width: 2.2, glow: 15 },
+  { freq: 6.0, ampScale: 0.45, speed: 3.5, phase: 0.5, color: [100, 140, 255], width: 1.4, glow: 10 },
+];
+const WAVE_CONFIGS = isMobile ? ALL_WAVE_CONFIGS.slice(0, 3) : ALL_WAVE_CONFIGS;
 
 export default function AudioVisualizer({
   levelRef,
@@ -27,9 +40,7 @@ export default function AudioVisualizer({
   const smoothLevelRef = useRef(0);
   const timeRef = useRef(0);
   const rafRef = useRef(0);
-  // Smooth transition between circular (0) and horizontal (1) wave mode
   const modeMixRef = useRef(0);
-  // Stash props into refs so the RAF loop reads them without re-creating the callback
   const activeRef = useRef(active);
   activeRef.current = active;
   const recordingRef = useRef(recording);
@@ -40,11 +51,33 @@ export default function AudioVisualizer({
   sizeRef.current = size;
 
   useEffect(() => {
-    function draw() {
-      const canvas = canvasRef.current;
-      if (!canvas) { rafRef.current = requestAnimationFrame(draw); return; }
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { rafRef.current = requestAnimationFrame(draw); return; }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Set canvas dimensions once (not every frame — resetting clears the buffer)
+    let currentSize = 0;
+    let dpr = 1;
+
+    function setupCanvas() {
+      const s = sizeRef.current;
+      const newDpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+      if (s === currentSize && newDpr === dpr) return;
+      currentSize = s;
+      dpr = newDpr;
+      canvas!.width = s * dpr;
+      canvas!.height = s * dpr;
+    }
+    setupCanvas();
+
+    let lastTimestamp = 0;
+
+    function draw(timestamp: number) {
+      if (!canvas || !ctx) { rafRef.current = requestAnimationFrame(draw); return; }
+
+      // Check for size changes (rare — only on resize)
+      setupCanvas();
 
       const s = sizeRef.current;
       const isActive = activeRef.current;
@@ -52,16 +85,17 @@ export default function AudioVisualizer({
       const isWaiting = waitingRef.current;
       const level = levelRef.current;
 
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = s * dpr;
-      canvas.height = s * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const cx = s / 2;
       const cy = s / 2;
       const orbR = s * 0.38;
+
+      // Use real delta-time for smooth animation at any frame rate
+      const dt = lastTimestamp ? (timestamp - lastTimestamp) / 1000 : 0.016;
+      lastTimestamp = timestamp;
+      timeRef.current += dt;
       const time = timeRef.current;
-      timeRef.current += 0.016;
 
       // Smooth level
       const target = isActive ? level : 0;
@@ -138,17 +172,9 @@ export default function AudioVisualizer({
       ctx.arc(cx, cy, orbR - 1, 0, TAU);
       ctx.clip();
 
-      const waveConfigs = [
-        { freq: 3.0, ampScale: 1.0, speed: 2.5, phase: 0, color: [255, 255, 255], width: 2.5, glow: 16 },
-        { freq: 4.2, ampScale: 0.8, speed: 2.0, phase: 1.0, color: [180, 220, 255], width: 2.0, glow: 14 },
-        { freq: 5.0, ampScale: 0.65, speed: 3.0, phase: 2.2, color: [140, 130, 255], width: 1.8, glow: 12 },
-        { freq: 2.2, ampScale: 0.9, speed: 1.6, phase: 3.5, color: [180, 140, 255], width: 2.2, glow: 15 },
-        { freq: 6.0, ampScale: 0.45, speed: 3.5, phase: 0.5, color: [100, 140, 255], width: 1.4, glow: 10 },
-      ];
+      const steps = WAVE_STEPS;
 
-      const steps = 180;
-
-      for (const wave of waveConfigs) {
+      for (const wave of WAVE_CONFIGS) {
         const baseAmp = isWaiting ? orbR * 0.04 : orbR * 0.02;
         const reactiveAmp = orbR * 0.4 * effectLevel * wave.ampScale;
         const amp = baseAmp + reactiveAmp;
@@ -187,28 +213,37 @@ export default function AudioVisualizer({
         const alpha = isWaiting ? 0.25 + effectLevel * 2 : 0.1 + effectLevel * 0.85;
         const [r, g, b] = wave.color;
 
-        // Broad glow
-        ctx.save();
-        ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${Math.min(alpha * 0.8, 0.7)})`;
-        ctx.shadowBlur = wave.glow + effectLevel * 22;
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.35})`;
-        ctx.lineWidth = wave.width + effectLevel * 4;
-        ctx.stroke();
-        ctx.restore();
+        if (isMobile) {
+          // Mobile: skip shadowBlur (very expensive), just draw glow + core strokes
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.45})`;
+          ctx.lineWidth = wave.width + effectLevel * 3;
+          ctx.stroke();
 
-        // Mid glow
-        ctx.save();
-        ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${alpha * 0.5})`;
-        ctx.shadowBlur = wave.glow * 0.5 + effectLevel * 8;
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.55})`;
-        ctx.lineWidth = wave.width + effectLevel * 1.5;
-        ctx.stroke();
-        ctx.restore();
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(alpha * 1.1, 1)})`;
+          ctx.lineWidth = wave.width;
+          ctx.stroke();
+        } else {
+          // Desktop: full 3-pass glow
+          ctx.save();
+          ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${Math.min(alpha * 0.8, 0.7)})`;
+          ctx.shadowBlur = wave.glow + effectLevel * 22;
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.35})`;
+          ctx.lineWidth = wave.width + effectLevel * 4;
+          ctx.stroke();
+          ctx.restore();
 
-        // Sharp core
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(alpha * 1.1, 1)})`;
-        ctx.lineWidth = wave.width;
-        ctx.stroke();
+          ctx.save();
+          ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${alpha * 0.5})`;
+          ctx.shadowBlur = wave.glow * 0.5 + effectLevel * 8;
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.55})`;
+          ctx.lineWidth = wave.width + effectLevel * 1.5;
+          ctx.stroke();
+          ctx.restore();
+
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(alpha * 1.1, 1)})`;
+          ctx.lineWidth = wave.width;
+          ctx.stroke();
+        }
       }
 
       // ---- Center glow ----
@@ -229,8 +264,10 @@ export default function AudioVisualizer({
         const pulse = 0.6 + 0.4 * Math.sin(time * 4);
 
         ctx.save();
-        ctx.shadowColor = `rgba(239, 68, 68, ${pulse * 0.7})`;
-        ctx.shadowBlur = 14;
+        if (!isMobile) {
+          ctx.shadowColor = `rgba(239, 68, 68, ${pulse * 0.7})`;
+          ctx.shadowBlur = 14;
+        }
         ctx.beginPath();
         ctx.arc(dotX, dotY, 5, 0, TAU);
         ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;

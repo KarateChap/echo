@@ -33,7 +33,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
   const formatted = formatFiatValue(value, currency);
 
   return (
-    <div className="flex flex-col items-center gap-0.5">
+    <div className="flex flex-col items-center gap-1">
       {loading ? (
         <div className="h-7 w-32 animate-pulse rounded-lg bg-white/[0.06]" />
       ) : (

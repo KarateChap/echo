@@ -1,6 +1,10 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import { buildChatSystemPrompt, fetchCryptoPrices } from "./chatAgent";
+import { convertFiatToToken } from "./fiatConversion";
+import { extractDelaySeconds } from "./delayExtractor";
+import { extractTokenFromTranscript } from "./tokenExtractor";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -235,7 +239,7 @@ http.route({
 
       if (elevenKey && voiceId) {
         const res = await fetch(
-          `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
+          `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?output_format=mp3_22050_32&optimize_streaming_latency=3`,
           {
             method: "POST",
             headers: {
@@ -244,19 +248,19 @@ http.route({
             },
             body: JSON.stringify({
               text,
-              model_id: "eleven_multilingual_v2",
+              model_id: "eleven_flash_v2_5",
               voice_settings: { stability: 0.4, similarity_boost: 0.9, style: 0.5, use_speaker_boost: true },
+              chunk_length_schedule: [120, 160, 250, 290],
             }),
           },
         );
 
-        if (res.ok) {
-          const audioBuffer = await res.arrayBuffer();
-          return new Response(audioBuffer, {
+        if (res.ok && res.body) {
+          return new Response(res.body, {
             status: 200,
             headers: {
               "Content-Type": "audio/mpeg",
-              "Content-Length": String(audioBuffer.byteLength),
+              "Transfer-Encoding": "chunked",
               ...CORS_HEADERS,
             },
           });
@@ -515,6 +519,368 @@ http.route({
       headers: {
         ...CORS_HEADERS,
         "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }),
+});
+
+// ── Streaming Chat (lower latency — inlines LLM call, uses OpenAI streaming) ─
+
+http.route({
+  path: "/api/chat-stream",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const { privyId, message, balanceSummary } = (await request.json()) as {
+        privyId: string;
+        message: string;
+        balanceSummary?: string;
+      };
+
+      if (!privyId || !message) {
+        return new Response(JSON.stringify({ error: "Missing privyId or message" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return new Response(JSON.stringify({ error: "OPENAI_API_KEY not configured" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      // Gather context (fast queries, ~100ms)
+      const context = (await ctx.runQuery(internal.chatAgent.getUserContext, { privyId })) as any;
+      if (!context) {
+        return new Response(JSON.stringify({ error: "User not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      const existingSession: any = await ctx.runQuery(internal.chatAgent.getActiveChatSession, {
+        userId: context.userId,
+      });
+
+      const messages: Array<{ role: "user" | "assistant"; content: string; timestamp: number }> =
+        existingSession?.messages ?? [];
+
+      messages.push({ role: "user" as const, content: message, timestamp: Date.now() });
+
+      // Fetch live crypto prices so agent can answer price questions
+      const priceSummary = await fetchCryptoPrices();
+
+      const systemPrompt = buildChatSystemPrompt({
+        displayName: context.displayName ?? undefined,
+        walletAddress: context.walletAddress ?? undefined,
+        balanceSummary: balanceSummary ?? undefined,
+        priceSummary,
+        recipients: context.recipients.map((r: any) => ({
+          name: r.name, email: r.email, relationship: r.relationship,
+        })),
+        rules: context.rules,
+        transactions: context.transactions,
+      });
+
+      const conversationMessages = messages.slice(-20).map((m: any) => ({
+        role: m.role, content: m.content,
+      }));
+
+      // Stream from OpenAI — faster total response time than non-streaming
+      const res = await fetch(OPENAI_CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0.7,
+          max_tokens: 500,
+          stream: true,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...conversationMessages,
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`OpenAI API error ${res.status}: ${detail.slice(0, 200)}`);
+      }
+
+      // Accumulate streamed tokens
+      let rawContent = "";
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") break;
+          try {
+            const chunk = JSON.parse(data);
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) rawContent += delta;
+          } catch {
+            // skip malformed chunks
+          }
+        }
+      }
+
+      // Parse the response
+      let parsed: { type: string; text: string; intent?: any };
+      try {
+        parsed = JSON.parse(rawContent);
+      } catch {
+        parsed = { type: "answer", text: rawContent };
+      }
+
+      // Safety net: detect missed payment intents
+      if (parsed.type !== "payment_intent") {
+        const lowerMsg = message.toLowerCase();
+        const lowerText = (parsed.text ?? "").toLowerCase();
+        const combined = lowerMsg + " " + lowerText;
+
+        const hasSendWord = /\b(send|padala|ipadala|magpadala|transfer|bayad|enviar|kirim|送|보내|envoyer|senden)\b/i.test(combined);
+        const hasConfirmWord = /\b(kumpirmasyon|confirmation|confirm|magpapadala|will send|i.ll send|sending|sige.*go|okay.*send|go ahead)\b/i.test(combined);
+        const hasAmount = /\d/.test(lowerMsg);
+        const isConfirming = /^(yes|okay|sige|go ahead|oo|confirm|do it|sure|tama|let.s go|push through|send it|go|oo na|sige na)\b/i.test(lowerMsg.trim());
+        const prevAssistantMsg = messages.length >= 3 ? messages[messages.length - 3]?.content ?? "" : "";
+        const prevDescribedPayment = /\b(send|padala|magpadala|transfer|kirim)\b/i.test(prevAssistantMsg.toLowerCase()) && /\d/.test(prevAssistantMsg);
+
+        if ((hasSendWord && hasAmount) || (hasConfirmWord && hasAmount) || (isConfirming && prevDescribedPayment)) {
+          const intentPrompt = `Extract a payment intent from this conversation. The user wants to send crypto.
+Return ONLY valid JSON with this exact schema:
+{"kind":"recurring"|"conditional"|"oneShot","recipient":{"name":string,"hint":""},"amount":number|null,"amountFiat":number|null,"fiatCurrency":string|null,"token":"USDC"|"USDT"|"ETH"|"HTT","schedule":{"kind":"monthly"|"weekly"|"daily"|"biweekly"|"cron"|"once"|"seconds"|"yearly","value":string}|null,"condition":null,"durationMinutes":number|null,"totalOccurrences":number|null}
+
+Rules:
+- Default token to USDC if not specified.
+- "after N seconds/minutes", "in N seconds/minutes" → kind: "oneShot" with schedule: {"kind":"seconds","value":"<totalSeconds>"}. This is a SINGLE delayed payment.
+- "every N seconds" → kind: "recurring" with schedule: {"kind":"seconds","value":"N"}
+- For recurring, totalOccurrences is required. Calculate from duration ÷ interval.
+- If immediate/one-time with NO delay, set schedule to null and kind to "oneShot".
+- Return ONLY the JSON object, nothing else.`;
+
+          const recentContext = messages.slice(-6).map((m: any) => `${m.role}: ${m.content}`).join("\n");
+
+          const intentRes = await fetch(OPENAI_CHAT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              temperature: 0,
+              max_tokens: 300,
+              messages: [
+                { role: "system", content: intentPrompt },
+                { role: "user", content: recentContext },
+              ],
+            }),
+          });
+
+          if (intentRes.ok) {
+            const intentJson = (await intentRes.json()) as { choices: { message: { content: string } }[] };
+            const intentRaw = intentJson.choices?.[0]?.message?.content ?? "";
+            try {
+              const intent = JSON.parse(intentRaw);
+              if (intent.recipient?.name && (intent.amount || intent.amountFiat)) {
+                parsed = { type: "payment_intent", text: parsed.text, intent };
+              }
+            } catch {
+              // keep original answer
+            }
+          }
+        }
+      }
+
+      // Post-process: fix GPT missing "after N seconds/minutes" delay in payment intents.
+      if (parsed.type === "payment_intent" && parsed.intent?.kind === "oneShot" && !parsed.intent.schedule) {
+        const delaySecs = extractDelaySeconds(message);
+        if (delaySecs) {
+          parsed.intent.schedule = { kind: "seconds", value: String(delaySecs) };
+        }
+      }
+
+      // Post-process: fix GPT defaulting token to USDC when user explicitly named a different token.
+      if (parsed.type === "payment_intent" && parsed.intent) {
+        const extractedToken = extractTokenFromTranscript(message);
+        if (extractedToken && (parsed.intent.token === "USDC" || !parsed.intent.token)) {
+          parsed.intent.token = extractedToken;
+        }
+      }
+
+      // Fiat-to-token conversion
+      if (parsed.type === "payment_intent" && parsed.intent?.amountFiat && parsed.intent?.fiatCurrency) {
+        const token = parsed.intent.token ?? "USDC";
+        const result = await convertFiatToToken(parsed.intent.amountFiat, parsed.intent.fiatCurrency, token);
+        if ("error" in result) {
+          parsed = { type: "answer", text: result.error };
+        } else {
+          parsed.intent.amount = result.amount;
+          parsed.intent.conversionRate = result.conversionRate;
+        }
+      }
+
+      // Sanitize payment_intent text
+      if (parsed.type === "payment_intent" && parsed.intent) {
+        const jsonTerms = /\b(intent|oneShot|amountFiat|fiatCurrency|totalOccurrences|durationMinutes|"kind"|"type"|"hint"|"schedule"|"condition")\b/i;
+        if (jsonTerms.test(parsed.text) || parsed.text.includes("{") || parsed.text.includes("}")) {
+          const name = parsed.intent.recipient?.name ?? "recipient";
+          const amount = (parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?";
+          const tok = parsed.intent.token ?? "USDC";
+          parsed.text = `Sige, magpapadala ng ${amount} ${tok} kay ${name}. I-confirm mo lang.`;
+        }
+      }
+
+      // Add assistant response
+      messages.push({ role: "assistant" as const, content: parsed.text, timestamp: Date.now() });
+
+      // Save session (fire-and-forget — don't block the response)
+      ctx.runMutation(internal.chatAgent.upsertChatSession, {
+        sessionId: existingSession?._id,
+        userId: context.userId,
+        messages,
+      });
+
+      return new Response(
+        JSON.stringify({
+          type: parsed.type ?? "answer",
+          text: parsed.text ?? rawContent,
+          intent: parsed.intent ?? null,
+          chatSessionId: existingSession?._id ?? null,
+          voiceGender: context.voiceGender,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        },
+      );
+    } catch (e: any) {
+      console.error("Chat stream error:", e);
+      return new Response(
+        JSON.stringify({
+          type: "answer",
+          text: "Sorry, may problema ako ngayon. Try mo ulit.",
+          intent: null,
+          chatSessionId: null,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        },
+      );
+    }
+  }),
+});
+
+http.route({
+  path: "/api/chat-stream",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...CORS_HEADERS,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }),
+});
+
+// ── Lightweight Whisper transcription for chat fallback ─────────────────────
+// Used when Web Speech API fails on mobile — sends audio to Whisper directly.
+
+const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
+
+http.route({
+  path: "/api/transcribeForChat",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const { storageId } = (await request.json()) as { storageId: string };
+      if (!storageId) {
+        return new Response(JSON.stringify({ transcript: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return new Response(JSON.stringify({ transcript: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      const audioBlob = await ctx.storage.get(storageId as any);
+      if (!audioBlob) {
+        return new Response(JSON.stringify({ transcript: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      const form = new FormData();
+      form.append("file", audioBlob, "audio.webm");
+      form.append("model", "whisper-1");
+      form.append("response_format", "verbose_json");
+
+      const res = await fetch(WHISPER_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+
+      if (!res.ok) {
+        return new Response(JSON.stringify({ transcript: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      const json = (await res.json()) as { text: string };
+      return new Response(JSON.stringify({ transcript: json.text?.trim() ?? "" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+      });
+    } catch {
+      return new Response(JSON.stringify({ transcript: "" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+      });
+    }
+  }),
+});
+
+http.route({
+  path: "/api/transcribeForChat",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...CORS_HEADERS,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
     });

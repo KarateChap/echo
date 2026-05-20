@@ -19,7 +19,7 @@ export const BUILTIN_TOKENS: Token[] = [
   {
     symbol: "USDC",
     name: "USD Coin",
-    address: import.meta.env.VITE_USDC_ADDRESS as `0x${string}`,
+    address: "0x7433b41C6c5e1d58D4Da99483609520255ab661B",
     decimals: 6,
     icon: "💵",
   },

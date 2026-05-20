@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { acquireSpeechLock, releaseSpeechLock } from "./speechRecognitionLock";
 
 const STABLE_MS = 1200; // transcript must be unchanged for this long before parsing
 const CHECK_INTERVAL_MS = 300;
@@ -40,6 +41,7 @@ export function useVoiceEmail({ enabled, convexSiteUrl }: UseVoiceEmailOptions):
   const lastCheckedRef = useRef("");
   const checkingRef = useRef(false);
   const doneRef = useRef(false);
+  const lockIdRef = useRef(`voiceemail-${Math.random().toString(36).slice(2)}`);
 
   const httpUrl = convexSiteUrl ? `${convexSiteUrl}/api/parseEmail` : "";
 
@@ -91,12 +93,15 @@ export function useVoiceEmail({ enabled, convexSiteUrl }: UseVoiceEmailOptions):
         try { recognitionRef.current.stop(); } catch {}
         recognitionRef.current = null;
       }
+      releaseSpeechLock(lockIdRef.current);
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
       return;
     }
+
+    if (!acquireSpeechLock(lockIdRef.current)) return;
 
     doneRef.current = false;
     checkingRef.current = false;
@@ -148,6 +153,7 @@ export function useVoiceEmail({ enabled, convexSiteUrl }: UseVoiceEmailOptions):
         try { recognitionRef.current.stop(); } catch {}
         recognitionRef.current = null;
       }
+      releaseSpeechLock(lockIdRef.current);
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;

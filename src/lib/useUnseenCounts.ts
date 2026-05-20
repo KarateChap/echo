@@ -1,22 +1,15 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-
-const ACTIVITY_KEY = "echo:lastSeenActivity";
-const RULES_KEY = "echo:lastSeenRules";
-
-function getTimestamp(key: string): number {
-  const val = localStorage.getItem(key);
-  return val ? parseInt(val, 10) : 0;
-}
-
-function setTimestamp(key: string) {
-  localStorage.setItem(key, Date.now().toString());
-}
 
 export function useUnseenCounts() {
   const { user } = usePrivy();
+
+  const dbUser = useQuery(
+    api.users.getByPrivyId,
+    user ? { privyId: user.id } : "skip",
+  );
 
   const txs = useQuery(
     api.transactions.listByUser,
@@ -28,20 +21,33 @@ export function useUnseenCounts() {
     user ? { privyId: user.id } : "skip",
   );
 
+  const markSeen = useMutation(api.users.markSectionSeen);
+
   const unseenActivity = useMemo(() => {
     if (!txs) return 0;
-    const lastSeen = getTimestamp(ACTIVITY_KEY);
+    const lastSeen = dbUser?.lastSeenActivity ?? 0;
     return txs.filter((tx) => (tx.executedAt ?? tx._creationTime) > lastSeen).length;
-  }, [txs]);
+  }, [txs, dbUser]);
 
   const unseenRules = useMemo(() => {
     if (!rules) return 0;
-    const lastSeen = getTimestamp(RULES_KEY);
+    const lastSeen = dbUser?.lastSeenRules ?? 0;
     return rules.filter((r) => r._creationTime > lastSeen).length;
-  }, [rules]);
+  }, [rules, dbUser]);
 
-  const markActivitySeen = useCallback(() => setTimestamp(ACTIVITY_KEY), []);
-  const markRulesSeen = useCallback(() => setTimestamp(RULES_KEY), []);
+  const markActivitySeen = useCallback(() => {
+    if (user) markSeen({ privyId: user.id, section: "activity" });
+  }, [user, markSeen]);
+
+  const markRulesSeen = useCallback(() => {
+    if (user) markSeen({ privyId: user.id, section: "rules" });
+  }, [user, markSeen]);
+
+  // Clean up old localStorage keys
+  useEffect(() => {
+    localStorage.removeItem("echo:lastSeenActivity");
+    localStorage.removeItem("echo:lastSeenRules");
+  }, []);
 
   return { unseenActivity, unseenRules, markActivitySeen, markRulesSeen };
 }

@@ -157,6 +157,11 @@ export const createFromIntent = mutation({
       .unique();
     if (!user) throw new Error("User not found");
 
+    // Recurring rules must have a finite totalOccurrences to prevent forever-running rules
+    if (args.kind === "recurring" && (!args.totalOccurrences || args.totalOccurrences <= 0)) {
+      throw new Error("Recurring rules require a specified number of occurrences");
+    }
+
     // Find or create recipient by name + owner (case-insensitive)
     const allRecipients = await ctx.db
       .query("recipients")

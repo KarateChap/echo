@@ -13,7 +13,7 @@ export const morphHoodi = defineChain({
   testnet: true,
 });
 
-export const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS as `0x${string}`;
+export const USDC_ADDRESS = "0x7433b41C6c5e1d58D4Da99483609520255ab661B" as `0x${string}`;
 export const USDC_DECIMALS = 6;
 
 export const ECHO_DELEGATOR_ADDRESS = import.meta.env.VITE_ECHO_DELEGATOR_ADDRESS as `0x${string}`;

@@ -1,10 +1,13 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
+import { isMobile } from "./isMobile";
 
 /**
  * Connects to a MediaStream or HTMLAudioElement via Web Audio API
  * and writes a normalized audio level (0–1) into a ref every animation frame.
  * Returns a ref so consumers can read .current in their own RAF loops
  * without triggering React re-renders.
+ *
+ * On mobile: uses smaller FFT and only analyzes every 3rd frame to reduce CPU.
  */
 export function useAudioAnalyser(
   source: MediaStream | HTMLAudioElement | null,
@@ -25,7 +28,7 @@ export function useAudioAnalyser(
     ctxRef.current = ctx;
 
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
+    analyser.fftSize = isMobile ? 256 : 1024;
     analyser.smoothingTimeConstant = 0.3;
     analyser.minDecibels = -100;
     analyser.maxDecibels = -10;
@@ -49,8 +52,18 @@ export function useAudioAnalyser(
     }
     sourceNode.connect(analyser);
 
+    let frameCount = 0;
+
     function tick() {
       if (cancelled) return;
+
+      frameCount++;
+
+      // On mobile, only run FFT analysis every 3rd frame (hold previous value)
+      if (isMobile && frameCount % 3 !== 0) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
 
       analyser.getByteFrequencyData(freqData);
       let freqSum = 0;
@@ -74,7 +87,7 @@ export function useAudioAnalyser(
       const voiceAvg = voiceSum / (hi - lo) / 255;
 
       const raw = Math.max(freqAvg * 0.6 + voiceAvg * 0.4, peak * 0.85);
-      const boosted = Math.pow(raw, 0.5) * 1.6;
+      const boosted = Math.pow(raw, 0.65) * 1.3;
       const clamped = Math.min(1, boosted);
 
       if (!cancelled) {

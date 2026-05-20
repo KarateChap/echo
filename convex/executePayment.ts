@@ -19,7 +19,7 @@ export const executePayment = internalAction({
     }
 
     const TOKEN_ADDRESSES: Record<string, { address: string; decimals: number }> = {
-      USDC: { address: process.env.USDC_ADDRESS ?? "0x1178341838B764dCfFA5BCEAb1d41443Fd71a227", decimals: 6 },
+      USDC: { address: "0x7433b41C6c5e1d58D4Da99483609520255ab661B", decimals: 6 },
       USDT: { address: "0xb646c743b4ba47ac03bee360bb2484fb55db8d7e", decimals: 6 },
       HTT: { address: "0xecf966cc754bc411e1f1106fbb4e343b835e85e4", decimals: 18 },
     };
@@ -263,7 +263,7 @@ export const executeRefund = internalAction({
     }
 
     const TOKEN_ADDRESSES: Record<string, { address: string; decimals: number }> = {
-      USDC: { address: process.env.USDC_ADDRESS ?? "0x1178341838B764dCfFA5BCEAb1d41443Fd71a227", decimals: 6 },
+      USDC: { address: "0x7433b41C6c5e1d58D4Da99483609520255ab661B", decimals: 6 },
       USDT: { address: "0xb646c743b4ba47ac03bee360bb2484fb55db8d7e", decimals: 6 },
       HTT: { address: "0xecf966cc754bc411e1f1106fbb4e343b835e85e4", decimals: 18 },
     };
