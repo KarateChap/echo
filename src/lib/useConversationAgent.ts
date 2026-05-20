@@ -7,7 +7,7 @@ interface ChatMessage {
 }
 
 interface ChatResponse {
-  type: "answer" | "payment_intent" | "exit";
+  type: "answer" | "payment_intent" | "withdraw" | "exit";
   text: string;
   intent?: any;
   chatSessionId?: string;
@@ -19,6 +19,7 @@ interface UseConversationAgentOptions {
   privyId: string;
   voiceGender: "male" | "female";
   onPaymentIntent: (intent: any, token?: string, readbackText?: string) => void;
+  onWithdraw: () => void;
   onExit: () => void;
   onTtsStart: (audioEl: HTMLAudioElement) => void;
   onTtsEnd: () => void;
@@ -29,6 +30,7 @@ export function useConversationAgent({
   privyId,
   voiceGender,
   onPaymentIntent,
+  onWithdraw,
   onExit,
   onTtsStart,
   onTtsEnd,
@@ -78,6 +80,13 @@ export function useConversationAgent({
     async (transcript: string, balanceSummary?: string) => {
       if (!transcript.trim() || !convexSiteUrl || !privyId) return;
 
+      // Client-side shortcut: detect withdraw/cash-out keywords instantly
+      const lower = transcript.trim().toLowerCase();
+      if (/\b(withdraw|cash\s*out|cashout|mag-?withdraw|i-?withdraw|encash|ilabas)\b/.test(lower)) {
+        onWithdraw();
+        return;
+      }
+
       const userMsg: ChatMessage = { role: "user", text: transcript.trim() };
       setMessages((prev) => [...prev, userMsg]);
       setIsProcessing(true);
@@ -102,6 +111,11 @@ export function useConversationAgent({
           return;
         }
 
+        if (data.type === "withdraw") {
+          onWithdraw();
+          return;
+        }
+
         const assistantMsg: ChatMessage = { role: "assistant", text: data.text };
         setMessages((prev) => [...prev, assistantMsg]);
         setLastResponse(data.text);
@@ -120,7 +134,7 @@ export function useConversationAgent({
         await playTts("Sorry, may error. Try mo ulit.");
       }
     },
-    [convexSiteUrl, privyId, playTts, onPaymentIntent, onExit],
+    [convexSiteUrl, privyId, playTts, onPaymentIntent, onWithdraw, onExit],
   );
 
   const stopTts = useCallback(() => {

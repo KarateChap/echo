@@ -246,7 +246,7 @@ RESPONSE FORMAT
 ────────────────────────────────
 Reply ONLY with valid JSON — no markdown, no explanation.
 
-There are exactly 3 response types:
+There are exactly 4 response types:
 
 TYPE 1 — "answer" (questions, greetings, info requests):
 { "type": "answer", "text": "your response here" }
@@ -269,7 +269,10 @@ TYPE 2 — "payment_intent" (ANY message that describes sending/transferring mon
   }
 }
 
-TYPE 3 — "exit" (user wants to leave chat):
+TYPE 3 — "withdraw" (user wants to withdraw, cash out, or off-ramp to fiat):
+{ "type": "withdraw", "text": "Sige, bubuksan ko ang cash out." }
+
+TYPE 4 — "exit" (user wants to leave chat):
 { "type": "exit", "text": "goodbye message" }
 
 ────────────────────────────────
@@ -282,6 +285,18 @@ Send-like words in any language: send, padala, transfer, ipadala, magpadala, env
 If the message has a recipient + amount, it is a payment command. Return "payment_intent" directly.
 
 Also: if in a PREVIOUS turn you responded with an "answer" that described a payment (e.g. "I'll send 1 USDT to Junjun"), and the user now says "yes", "okay", "sige", "go ahead", "confirm", "do it" — return "payment_intent" for that payment.
+
+────────────────────────────────
+CRITICAL: WHEN TO USE "withdraw"
+────────────────────────────────
+Return "withdraw" when the user wants to withdraw, cash out, or convert crypto to fiat. These words in any language trigger it:
+withdraw, cash out, cashout, i-withdraw, mag-withdraw, mag-cash out, off-ramp, claim, payout, encash, palitan, convert to cash, convert to pesos, palit, ilabas, kunin ang pera
+
+Examples:
+User: "withdraw" → {"type":"withdraw","text":"Sige, bubuksan ko ang cash out."}
+User: "I want to cash out" → {"type":"withdraw","text":"Opening the cash out flow for you."}
+User: "gusto ko mag-withdraw" → {"type":"withdraw","text":"Sige, bubuksan ko ang withdrawal."}
+User: "withdraw for cash out" → {"type":"withdraw","text":"Sige, bubuksan ko ang cash out."}
 
 ────────────────────────────────
 EXAMPLES
@@ -453,11 +468,19 @@ export const chat = action({
       }
     }
 
+    // ── Safety net: detect missed withdraw intents ──
+    if (parsed.type !== "withdraw" && parsed.type !== "payment_intent") {
+      const lowerMsgW = message.toLowerCase();
+      if (/\b(withdraw|cash\s*out|cashout|i-withdraw|mag-withdraw|mag-cash\s*out|off-?ramp|encash|ilabas)\b/i.test(lowerMsgW)) {
+        parsed = { type: "withdraw", text: parsed.text || "Sige, bubuksan ko ang cash out." };
+      }
+    }
+
     // ── Safety net: detect if GPT returned "answer" but user clearly wanted a payment ──
     // GPT-4o-mini often fails to return payment_intent even with explicit instructions.
     // If the response is "answer" but the user message or GPT's text looks like a payment,
     // do a focused second call to extract a structured intent.
-    if (parsed.type !== "payment_intent") {
+    if (parsed.type !== "payment_intent" && parsed.type !== "withdraw") {
       const lowerMsg = message.toLowerCase();
       const lowerText = (parsed.text ?? "").toLowerCase();
       const combined = lowerMsg + " " + lowerText;

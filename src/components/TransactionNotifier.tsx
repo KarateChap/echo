@@ -109,7 +109,7 @@ export default function TransactionNotifier() {
           id: tx._id,
           message: isSuccess ? "Withdrawal Successful" : "Withdrawal Failed",
           detail: isSuccess
-            ? `${tx.fiatAmount?.toLocaleString() ?? ""} ${tx.fiatCurrency ?? ""} to ${tx.destinationName ?? tx.recipientName}`
+            ? `${tx.fiatCurrency ? `${tx.fiatAmount?.toLocaleString() ?? ""} ${tx.fiatCurrency}` : `${tx.tokenAmount?.toLocaleString(undefined, { maximumFractionDigits: 6 }) ?? ""} ${tx.token ?? ""}`} to ${tx.destinationName ?? tx.recipientName}`
             : `to ${tx.destinationName ?? tx.recipientName}`,
           type: isSuccess ? "withdrawn" as const : "failed" as const,
           amount: undefined,

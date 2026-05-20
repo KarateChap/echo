@@ -189,8 +189,14 @@ function TxCard({ tx, prices, currency }: { tx: any; prices: Record<string, Reco
         </div>
 
         <div>
-          <div className="text-xl font-bold">{formatFiatValue(tx.fiatAmount, tx.fiatCurrency)}</div>
-          <div className="text-xs text-white/50">{tx.tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} {tx.token}</div>
+          <div className="text-xl font-bold">
+            {tx.fiatCurrency
+              ? formatFiatValue(tx.fiatAmount, tx.fiatCurrency)
+              : `${tx.tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${tx.token}`}
+          </div>
+          {tx.fiatCurrency && (
+            <div className="text-xs text-white/50">{tx.tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} {tx.token}</div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 text-[11px] text-white/40">

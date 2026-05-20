@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { SEA_COUNTRIES, type CountryConfig, type Destination } from "@/lib/seaDestinations";
@@ -6,8 +6,14 @@ import { formatFiatValue, CURRENCY_CONFIG } from "@/lib/currencyConfig";
 import { fundAgentWallet } from "@/lib/fundAgentWallet";
 import type { TokenBalance } from "@/lib/useTokenBalances";
 import TokenIcon from "@/components/TokenIcon";
+import AudioVisualizer from "@/components/AudioVisualizer";
+import { DestinationLogo } from "@/components/DestinationLogo";
+import { useStreamingAudio } from "@/lib/useStreamingAudio";
+import { useAudioAnalyser } from "@/lib/useAudioAnalyser";
+import { useConversationListener, type VoiceCommand } from "@/lib/useConversationListener";
 
 const EXPLORER = import.meta.env.VITE_MORPH_HOODI_EXPLORER;
+const convexSiteUrl = (import.meta.env.VITE_CONVEX_URL ?? "").replace(/\.convex\.cloud\/?$/, ".convex.site");
 
 type Step =
   | "select-token"
@@ -27,6 +33,19 @@ function generateReferenceNumber(): string {
   return `ECH-${code}`;
 }
 
+function friendlyError(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes("user rejected") || lower.includes("user denied") || lower.includes("rejected the request"))
+    return "You cancelled the transaction. No funds were sent.";
+  if (lower.includes("insufficient funds") || lower.includes("insufficient balance"))
+    return "Not enough balance to complete this withdrawal.";
+  if (lower.includes("network") || lower.includes("timeout") || lower.includes("etimedout"))
+    return "Network issue — please check your connection and try again.";
+  if (lower.includes("nonce"))
+    return "Transaction conflict — please try again.";
+  return "Something went wrong. Please try again or contact support.";
+}
+
 function maskAccount(value: string): string {
   if (value.length <= 4) return "****";
   return value.slice(0, 4) + "***" + value.slice(-4);
@@ -43,9 +62,10 @@ interface Props {
   prices: Record<string, Record<string, number>> | null;
   currency: string;
   privyId: string;
+  voiceGender?: "male" | "female";
 }
 
-export default function WithdrawModal({ open, onClose, wallet, balances, prices, currency, privyId }: Props) {
+export default function WithdrawModal({ open, onClose, wallet, balances, prices, currency, privyId, voiceGender = "female" }: Props) {
   const [step, setStep] = useState<Step>("select-token");
   const [selectedBalance, setSelectedBalance] = useState<TokenBalance | null>(null);
   const [amount, setAmount] = useState("");
@@ -53,9 +73,24 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
   const [destination, setDestination] = useState<Destination | null>(null);
   const [destTab, setDestTab] = useState<"ewallet" | "bank">("ewallet");
   const [account, setAccount] = useState("");
+  const accountRef = useRef(account);
+  accountRef.current = account;
   const [txHash, setTxHash] = useState("");
   const [refNumber, setRefNumber] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  // TTS state
+  const [ttsAudioEl, setTtsAudioEl] = useState<HTMLAudioElement | null>(null);
+  const isTtsPlaying = !!ttsAudioEl;
+  const speakingRef = useRef(false);
+
+  const { playStream, stop: stopTts } = useStreamingAudio({
+    onStart: (audio) => setTtsAudioEl(audio),
+    onEnd: () => setTtsAudioEl(null),
+  });
+
+  const ttsLevelRef = useAudioAnalyser(ttsAudioEl);
+  const idleLevelRef = useRef(0);
 
   const createWithdrawal = useMutation(api.withdrawals.create);
   const markSuccess = useMutation(api.withdrawals.markSuccess);
@@ -85,7 +120,210 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
   const maxFiat = maxBalance * tokenRate;
   const isOverBalance = totalTokenAmount > maxBalance;
 
+  // ── TTS speak helper ──────────────────────────────────────────────────────
+  const speak = useCallback(async (text: string) => {
+    if (!convexSiteUrl) return;
+    // Stop any current TTS before speaking the new prompt
+    stopTts();
+    speakingRef.current = true;
+    try {
+      const res = await fetch(`${convexSiteUrl}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: voiceGender }),
+      });
+      if (res.ok) await playStream(res);
+    } catch {}
+    speakingRef.current = false;
+  }, [voiceGender, playStream, stopTts]);
+
+  // ── Speak prompts on step transitions ──────────────────────────────────────
+  // Use refs to avoid effect re-firing on data changes — only fire on step/open change
+  const selectedBalanceRef = useRef(selectedBalance);
+  const countryRef = useRef(country);
+  const destinationRef = useRef(destination);
+  const hasFxRateRef = useRef(hasFxRate);
+  const parsedAmountRef = useRef(parsedAmount);
+  const currencyRef = useRef(currency);
+  selectedBalanceRef.current = selectedBalance;
+  countryRef.current = country;
+  destinationRef.current = destination;
+  hasFxRateRef.current = hasFxRate;
+  parsedAmountRef.current = parsedAmount;
+  currencyRef.current = currency;
+
+  useEffect(() => {
+    if (!open) return;
+
+    function getPrompt(s: Step): string {
+      switch (s) {
+        case "select-token":
+          return "Which token would you like to withdraw?";
+        case "enter-amount":
+          return selectedBalanceRef.current
+            ? `How much ${selectedBalanceRef.current.token.symbol} would you like to withdraw? Say max for the full balance.`
+            : "";
+        case "select-country":
+          return "Which country are you withdrawing to?";
+        case "select-destination":
+          return countryRef.current
+            ? `Choose an e-wallet or bank in ${countryRef.current.name}. Say the name to select it.`
+            : "";
+        case "enter-account":
+          return destinationRef.current
+            ? `Please type your ${destinationRef.current.accountLabel} for ${destinationRef.current.name}. Say next when done.`
+            : "";
+        case "confirm": {
+          const bal = selectedBalanceRef.current;
+          const amtStr = hasFxRateRef.current && bal
+            ? `${formatFiatValue(parsedAmountRef.current, currencyRef.current)} worth of ${bal.token.symbol}`
+            : `${parsedAmountRef.current} ${bal?.token.symbol ?? "tokens"}`;
+          return `You're withdrawing ${amtStr} to ${destinationRef.current?.name}. Say confirm to proceed, or cancel to go back.`;
+        }
+        case "success":
+          return `Withdrawal complete! Your funds are on the way to ${destinationRef.current?.name}.`;
+        default:
+          return "";
+      }
+    }
+
+    const text = getPrompt(step);
+    if (text) {
+      const timer = setTimeout(() => speak(text), 400);
+      return () => clearTimeout(timer);
+    }
+  // Only trigger on step change or modal open/close
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, open]);
+
+  // ── Voice command map ──────────────────────────────────────────────────────
+  const commandMap = useMemo<Record<string, VoiceCommand[]>>(() => {
+    const tokenCmds: VoiceCommand[] = sortedBalances
+      .filter((b) => b.raw > 0n)
+      .map((b) => ({
+        keywords: [b.token.symbol.toLowerCase(), b.token.name.toLowerCase()],
+        action: () => { setSelectedBalance(b); setStep("enter-amount"); },
+      }));
+
+    const countryCmds: VoiceCommand[] = SEA_COUNTRIES.map((c) => ({
+      keywords: [c.name.toLowerCase(), c.name.toLowerCase().replace(/-/g, " ")].filter((v, i, a) => a.indexOf(v) === i),
+      action: () => {
+        setCountry(c);
+        setDestTab(c.destinations.some((d) => d.type === "ewallet") ? "ewallet" : "bank");
+        setStep("select-destination");
+      },
+    }));
+
+    const destCmds: VoiceCommand[] = country
+      ? [
+          ...country.destinations.map((d) => ({
+            keywords: [
+              d.name.toLowerCase(),
+              d.name.toLowerCase().replace(/-/g, " "),
+              ...(d.voiceKeywords ?? []),
+            ].filter((v, i, a) => a.indexOf(v) === i),
+            action: () => {
+              setDestination(d);
+              setAccount(d.type === "ewallet" && country.phonePrefix ? country.phonePrefix : "");
+              setStep("enter-account");
+            },
+          })),
+          { keywords: ["e-wallets", "e wallets", "ewallets", "ewallet", "show e-wallets", "switch to e-wallets"], action: () => setDestTab("ewallet") },
+          { keywords: ["banks", "show banks", "switch to banks"], action: () => setDestTab("bank") },
+        ]
+      : [];
+
+    return {
+      "select-token": [
+        ...tokenCmds,
+        { keywords: ["cancel", "close", "nevermind"], action: () => handleClose() },
+      ],
+      "enter-amount": [
+        { keywords: ["max", "maximum", "all", "everything"], action: () => {
+          if (hasFxRate) {
+            const maxWithdraw = maxFiat / 1.015;
+            setAmount(maxWithdraw > 0 ? maxWithdraw.toFixed(2) : "0");
+          } else {
+            setAmount(maxBalance > 0 ? maxBalance.toString() : "0");
+          }
+        }},
+        { keywords: ["continue", "next", "proceed"], action: () => {
+          if (parsedAmountRef.current > 0) setStep("select-country");
+        }},
+        { keywords: ["back", "go back", "navigate back", "previous", "cancel"], action: () => handleClose() },
+      ],
+      "select-country": [
+        ...countryCmds,
+        { keywords: ["back", "go back", "navigate back", "previous", "cancel"], action: () => handleClose() },
+      ],
+      "select-destination": [
+        ...destCmds,
+        { keywords: ["back", "go back", "navigate back", "previous", "cancel"], action: () => handleClose() },
+      ],
+      "enter-account": [
+        { keywords: ["review", "next", "continue", "proceed"], action: () => {
+          if (accountRef.current.trim().length >= 4) setStep("confirm");
+        }},
+        { keywords: ["back", "go back", "navigate back", "previous", "cancel"], action: () => handleClose() },
+      ],
+      "confirm": [
+        { keywords: ["confirm", "yes", "approve", "proceed", "sige", "go ahead", "let's go"], action: () => handleConfirm() },
+        { keywords: ["cancel", "back", "no", "nevermind", "huwag", "wag na"], action: () => handleClose() },
+      ],
+      "success": [
+        { keywords: ["done", "close", "okay", "thanks"], action: () => handleClose() },
+      ],
+      "error": [
+        { keywords: ["retry", "try again", "again"], action: () => { reset(); setStep("select-token"); } },
+        { keywords: ["close", "cancel", "done"], action: () => handleClose() },
+      ],
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedBalances, country, hasFxRate, maxFiat, maxBalance, parsedAmount, isOverBalance, account]);
+
+  // Voice listening — only enable after first TTS prompt finishes to avoid
+  // SpeechRecognition fighting with audio playback on startup
+  const [voiceReady, setVoiceReady] = useState(false);
+  useEffect(() => {
+    if (!open) { setVoiceReady(false); return; }
+    // Enable voice listening 3s after modal opens (after first TTS prompt plays)
+    const timer = setTimeout(() => setVoiceReady(true), 3000);
+    return () => clearTimeout(timer);
+  }, [open]);
+
+  const isVoiceStep = voiceReady && step !== "processing";
+
+  // Parse spoken numbers for the enter-amount step
+  const lastVoiceAmountRef = useRef<string>("");
+  const userIsTypingRef = useRef(false);
+
+  const handleUnmatched = useCallback((transcript: string, currentStep: string) => {
+    if (currentStep !== "enter-amount") return;
+    if (userIsTypingRef.current) return; // Don't overwrite manual input
+    const cleaned = transcript.replace(/,/g, "").toLowerCase().trim();
+    if (cleaned === lastVoiceAmountRef.current) return; // Deduplicate
+    // Remove common filler words: "pesos", "dollars", "php", etc.
+    const stripped = cleaned.replace(/\b(pesos?|dollars?|php|usd|usdc|usdt|eth|htt|bucks?|worth)\b/g, "").trim();
+    const num = parseFloat(stripped);
+    if (!isNaN(num) && num > 0) {
+      lastVoiceAmountRef.current = cleaned;
+      setAmount(num.toString());
+    }
+  }, []);
+
+  const { interimTranscript } = useConversationListener({
+    enabled: isVoiceStep,
+    currentStep: step,
+    ttsPlaying: isTtsPlaying,
+    commandMap,
+    onUnmatched: handleUnmatched,
+  });
+
+  // ── Reset & cleanup ────────────────────────────────────────────────────────
   function reset() {
+    stopTts();
+    userIsTypingRef.current = false;
+    lastVoiceAmountRef.current = "";
     setStep("select-token");
     setSelectedBalance(null);
     setAmount("");
@@ -104,20 +342,9 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
     onClose();
   }
 
-  function handleBack() {
-    switch (step) {
-      case "enter-amount": setStep("select-token"); break;
-      case "select-country": setStep("enter-amount"); break;
-      case "select-destination": setStep("select-country"); break;
-      case "enter-account": setStep("select-destination"); break;
-      case "confirm": setStep("enter-account"); break;
-      case "error": setStep("confirm"); break;
-      default: break;
-    }
-  }
-
   async function handleConfirm() {
     if (!wallet || !selectedBalance || !country || !destination) return;
+    stopTts();
     setStep("processing");
 
     const ref = generateReferenceNumber();
@@ -169,17 +396,24 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
       onClick={handleClose}
     >
       <div
-        className="glass-card w-full max-w-sm space-y-4 p-6 max-h-[85dvh] overflow-y-auto scrollbar-thin"
+        className="glass-card w-full max-w-sm flex flex-col p-6 h-[85dvh]"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Audio Visualizer — always visible */}
+        <div className="flex justify-center py-1 shrink-0">
+          <AudioVisualizer
+            levelRef={isTtsPlaying ? ttsLevelRef : idleLevelRef}
+            active={isTtsPlaying}
+            size={80}
+          />
+        </div>
+
+        {/* Scrollable content area */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin space-y-4 min-h-0">
+
         {/* Header */}
         {step !== "processing" && step !== "success" && (
           <div className="flex items-center gap-3">
-            {step !== "select-token" && (
-              <button onClick={handleBack} className="text-sm text-white/50 hover:text-white transition-colors">
-                &larr;
-              </button>
-            )}
             <h2 className="text-base font-semibold">
               {step === "select-token" && "Cash Out"}
               {step === "enter-amount" && "Enter Amount"}
@@ -195,7 +429,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
         {/* Step 1: Select Token */}
         {step === "select-token" && (
           <div className="space-y-2">
-            <p className="text-xs text-white/40">Select token to withdraw</p>
+            <p className="text-xs text-white/40">Select token to withdraw, or say its name</p>
             {sortedBalances.length === 0 && (
               <p className="text-sm text-white/50 py-4 text-center">No tokens available.</p>
             )}
@@ -222,7 +456,6 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
                 </button>
               );
             })}
-            <button onClick={handleClose} className="btn-secondary w-full mt-2">Cancel</button>
           </div>
         )}
 
@@ -245,7 +478,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
                 type="number"
                 inputMode="decimal"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => { userIsTypingRef.current = true; setAmount(e.target.value); }}
                 placeholder="0.00"
                 className={`glass-input text-lg font-semibold tabular-nums ${hasFxRate ? "pl-8" : "pl-14"}`}
                 autoFocus
@@ -311,7 +544,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
         {/* Step 3: Select Country */}
         {step === "select-country" && (
           <div className="space-y-2">
-            <p className="text-xs text-white/40">Where are you withdrawing to?</p>
+            <p className="text-xs text-white/40">Where are you withdrawing to? Say the country name</p>
             <div className="space-y-1.5 max-h-[50dvh] overflow-y-auto scrollbar-thin pr-1">
               {SEA_COUNTRIES.map((c) => (
                 <button
@@ -342,7 +575,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
         {/* Step 4: Select Destination */}
         {step === "select-destination" && country && (
           <div className="space-y-3">
-            <p className="text-xs text-white/40">{country.flag} {country.name}</p>
+            <p className="text-xs text-white/40">{country.flag} {country.name} &middot; Say the name to select</p>
 
             {/* Tabs */}
             <div className="flex gap-2">
@@ -371,12 +604,14 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
                 .map((d) => (
                   <button
                     key={d.name}
-                    onClick={() => { setDestination(d); setStep("enter-account"); }}
+                    onClick={() => {
+                      setDestination(d);
+                      setAccount(d.type === "ewallet" && country?.phonePrefix ? country.phonePrefix : "");
+                      setStep("enter-account");
+                    }}
                     className="glass-card glass-card-hover flex w-full items-center gap-3 p-3 text-left"
                   >
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06] text-sm">
-                      {d.type === "ewallet" ? "📱" : "🏦"}
-                    </span>
+                    <DestinationLogo destination={d} size="sm" />
                     <span className="text-sm font-medium">{d.name}</span>
                   </button>
                 ))}
@@ -388,7 +623,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
         {step === "enter-account" && destination && (
           <div className="space-y-3">
             <div className="glass-card flex items-center gap-3 p-3">
-              <span className="text-lg">{destination.type === "ewallet" ? "📱" : "🏦"}</span>
+              <DestinationLogo destination={destination} size="lg" />
               <div>
                 <div className="text-sm font-semibold">{destination.name}</div>
                 <div className="text-[11px] text-white/40">{country?.flag} {country?.name}</div>
@@ -398,13 +633,26 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
             <div>
               <label className="mb-1.5 block text-xs text-white/40">{destination.accountLabel}</label>
               <input
-                type="text"
+                type="tel"
+                inputMode="numeric"
                 value={account}
-                onChange={(e) => setAccount(e.target.value)}
-                placeholder={destination.type === "ewallet" ? "09xxxxxxxxx" : "xxxx-xxxx-xxxx"}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "");
+                  const max = destination.type === "ewallet"
+                    ? (country?.phoneMaxDigits ?? 13)
+                    : (country?.bankMaxDigits ?? 16);
+                  setAccount(digits.slice(0, max));
+                }}
+                maxLength={destination.type === "ewallet"
+                  ? (country?.phoneMaxDigits ?? 13)
+                  : (country?.bankMaxDigits ?? 16)}
+                placeholder={destination.type === "ewallet"
+                  ? (country?.phonePrefix ?? "") + "x".repeat((country?.phoneMaxDigits ?? 11) - (country?.phonePrefix?.length ?? 0))
+                  : "x".repeat(country?.bankMaxDigits ?? 12)}
                 className="glass-input text-sm"
                 autoFocus
               />
+              <p className="text-[10px] text-white/30 mt-1">Say "next" when done</p>
             </div>
 
             <button
@@ -437,7 +685,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
               </div>
               <div className="flex justify-between">
                 <span className="text-white/40">Account</span>
-                <span className="font-mono text-xs">{maskAccount(account)}</span>
+                <span className="font-mono text-xs">{account}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-white/40">Country</span>
@@ -453,12 +701,14 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
               </div>
             </div>
 
+            <p className="text-[10px] text-white/30 text-center">Say "confirm" to proceed or "cancel" to go back</p>
+
             <div className="flex gap-3">
               <button onClick={handleConfirm} className="btn-primary flex-1">
                 Confirm Withdrawal
               </button>
-              <button onClick={handleBack} className="btn-secondary flex-1">
-                Back
+              <button onClick={handleClose} className="btn-secondary flex-1">
+                Cancel
               </button>
             </div>
           </div>
@@ -497,7 +747,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
               </div>
               <div className="flex justify-between">
                 <span className="text-white/40">Account</span>
-                <span className="font-mono text-xs">{maskAccount(account)}</span>
+                <span className="font-mono text-xs">{account}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-white/40">Amount</span>
@@ -515,6 +765,7 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
               )}
             </div>
 
+            <p className="text-[10px] text-white/30">Say "done" to close</p>
             <button onClick={handleClose} className="btn-primary w-full">Done</button>
           </div>
         )}
@@ -530,12 +781,32 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
             </div>
             <div className="text-center">
               <p className="text-lg font-semibold">Withdrawal Failed</p>
-              <p className="text-xs text-white/50 mt-2 max-w-[280px]">{errorMsg}</p>
+              <p className="text-xs text-white/50 mt-2 max-w-[280px]">{friendlyError(errorMsg)}</p>
             </div>
+            <p className="text-[10px] text-white/30">Say "retry" or "close"</p>
             <div className="flex gap-3 w-full">
-              <button onClick={handleBack} className="btn-primary flex-1">Try Again</button>
+              <button onClick={() => { reset(); setStep("select-token"); }} className="btn-primary flex-1">Try Again</button>
               <button onClick={handleClose} className="btn-secondary flex-1">Close</button>
             </div>
+          </div>
+        )}
+        </div>{/* end scrollable content */}
+
+        {/* Fixed footer: Cancel + Transcript */}
+        {!["processing", "success"].includes(step) && (
+          <div className="shrink-0 pt-3 border-t border-white/[0.06] space-y-2">
+            {!["confirm", "error"].includes(step) && (
+              <button onClick={handleClose} className="text-xs text-white/40 hover:text-white/70 transition-colors w-full text-center py-1">
+                Cancel Cash Out
+              </button>
+            )}
+            {isVoiceStep && (
+              <p className="text-xs text-white/30 text-center truncate min-h-[1.25rem]">
+                {interimTranscript
+                  ? <span className="text-white/50 italic">&ldquo;{interimTranscript}&rdquo;</span>
+                  : <span>Listening...</span>}
+              </p>
+            )}
           </div>
         )}
       </div>

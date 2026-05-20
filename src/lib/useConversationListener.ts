@@ -1,7 +1,7 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { acquireSpeechLock, releaseSpeechLock } from "./speechRecognitionLock";
 
-const STARTUP_DELAY_MS = 2000; // ignore results briefly after first enabling or after TTS ends
+const STARTUP_DELAY_MS = 800; // ignore results briefly after first enabling or after TTS ends
 const START_RETRY_DELAY_MS = 500;
 
 export interface VoiceCommand {
@@ -18,6 +18,8 @@ interface UseConversationListenerOptions {
   commandMap: Record<string, VoiceCommand[]>;
   /** True while TTS audio is playing — suppresses matching to avoid picking up the AI's own voice */
   ttsPlaying: boolean;
+  /** Called with the raw transcript when no keyword command matched. Useful for parsing numbers etc. */
+  onUnmatched?: (transcript: string, step: string) => void;
 }
 
 const SpeechRecognitionClass =
@@ -30,11 +32,18 @@ const SpeechRecognitionClass =
  * allowing for minor speech recognition errors (edit distance ≤ 2 for words ≥ 5 chars).
  */
 function fuzzyMatch(transcript: string, keyword: string): boolean {
-  const lower = transcript.toLowerCase().trim();
-  const kw = keyword.toLowerCase();
+  // Normalize both: lowercase, collapse whitespace, trim
+  const lower = transcript.toLowerCase().replace(/\s+/g, " ").trim();
+  const kw = keyword.toLowerCase().replace(/\s+/g, " ").trim();
 
   // Exact substring match (fast path)
   if (lower.includes(kw)) return true;
+
+  // Try with all non-alphanumeric removed — handles "grab pay" matching "grabpay",
+  // "e-wallets" matching "e wallets", "dbs paylah!" matching "dbs paylah", etc.
+  const normLower = lower.replace(/[^a-z0-9]/g, "");
+  const normKw = kw.replace(/[^a-z0-9]/g, "");
+  if (normLower.includes(normKw)) return true;
 
   // For short keywords, only accept exact match
   if (kw.length < 5) return false;
@@ -45,12 +54,15 @@ function fuzzyMatch(transcript: string, keyword: string): boolean {
     if (editDistance(word, kw) <= 2) return true;
   }
 
-  // Check consecutive word pairs for multi-word keywords
-  if (kw.includes(" ")) {
-    const kwWords = kw.split(/\s+/);
-    for (let i = 0; i <= words.length - kwWords.length; i++) {
-      const phrase = words.slice(i, i + kwWords.length).join(" ");
-      if (editDistance(phrase, kw) <= 2) return true;
+  // Check consecutive word pairs/triples joined together — handles speech
+  // splitting compound names like "grab pay" → "grabpay", "shopee pay" → "shopeepay"
+  for (let n = 2; n <= Math.min(3, words.length); n++) {
+    for (let i = 0; i <= words.length - n; i++) {
+      const joined = words.slice(i, i + n).join("");
+      if (editDistance(joined, kw) <= 2) return true;
+      // Also check with spaces for multi-word keywords
+      const spaced = words.slice(i, i + n).join(" ");
+      if (editDistance(spaced, kw) <= 2) return true;
     }
   }
 
@@ -78,14 +90,18 @@ export function useConversationListener({
   currentStep,
   commandMap,
   ttsPlaying,
+  onUnmatched,
 }: UseConversationListenerOptions) {
+  const [interimTranscript, setInterimTranscript] = useState("");
   const recognitionRef = useRef<any>(null);
   const firedRef = useRef(false);
+  const processedUpToRef = useRef(0); // track last processed result index
   const enabledAtRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentStepRef = useRef(currentStep);
   const commandMapRef = useRef(commandMap);
   const ttsPlayingRef = useRef(ttsPlaying);
+  const onUnmatchedRef = useRef(onUnmatched);
   const pendingTranscriptsRef = useRef<string[]>([]);
   const lockIdRef = useRef(`convlistener-${Math.random().toString(36).slice(2)}`);
 
@@ -93,11 +109,17 @@ export function useConversationListener({
   currentStepRef.current = currentStep;
   commandMapRef.current = commandMap;
   ttsPlayingRef.current = ttsPlaying;
+  onUnmatchedRef.current = onUnmatched;
 
-  // Reset fired flag and pending buffer when step changes so new commands can trigger
+  // Reset fired flag and pending buffer when step changes so new commands can trigger.
+  // Also reset the startup delay to create a cooldown — prevents lingering transcripts
+  // from the previous step from immediately firing on the new step.
   useEffect(() => {
     firedRef.current = false;
+    processedUpToRef.current = 0;
     pendingTranscriptsRef.current = [];
+    enabledAtRef.current = Date.now();
+    setInterimTranscript("");
   }, [currentStep]);
 
   // Discard buffered transcripts when TTS finishes — they came from the AI's
@@ -112,7 +134,13 @@ export function useConversationListener({
   }, [ttsPlaying]);
 
   const handleResult = useCallback((event: any) => {
-    if (firedRef.current) return;
+    // Always update interim transcript for display — even if a command already
+    // fired or TTS is playing. This keeps the transcript responsive at all times.
+    let latestTranscript = "";
+    for (let i = 0; i < event.results.length; i++) {
+      latestTranscript = event.results[i][0].transcript;
+    }
+    if (latestTranscript && !ttsPlayingRef.current) setInterimTranscript(latestTranscript);
 
     // Buffer transcripts during TTS so we can check them after TTS ends
     if (ttsPlayingRef.current) {
@@ -122,23 +150,38 @@ export function useConversationListener({
       return;
     }
 
-    // Ignore results during startup delay
+    // Ignore results during startup delay (for command matching only)
     if (Date.now() - enabledAtRef.current < STARTUP_DELAY_MS) return;
 
     const commands = commandMapRef.current[currentStepRef.current];
     if (!commands || commands.length === 0) return;
 
-    for (let i = 0; i < event.results.length; i++) {
+    // Only process results we haven't seen yet — continuous mode accumulates
+    // old results, and re-processing them after firedRef resets causes ghost matches
+    for (let i = processedUpToRef.current; i < event.results.length; i++) {
       const transcript = event.results[i][0].transcript;
 
+      // Skip already-processed final results
+      if (i < processedUpToRef.current) continue;
+      if (event.results[i].isFinal) processedUpToRef.current = i + 1;
+
+      let matched = false;
       for (const cmd of commands) {
+        if (matched) break;
         for (const keyword of cmd.keywords) {
           if (fuzzyMatch(transcript, keyword)) {
-            firedRef.current = true;
+            matched = true;
+            processedUpToRef.current = i + 1;
+            setInterimTranscript("");
             cmd.action();
             return;
           }
         }
+      }
+
+      // No keyword matched — forward to onUnmatched handler
+      if (!matched && event.results[i].isFinal && onUnmatchedRef.current) {
+        onUnmatchedRef.current(transcript, currentStepRef.current);
       }
     }
   }, []);
@@ -159,28 +202,39 @@ export function useConversationListener({
     recognition.maxAlternatives = 1;
 
     recognition.onresult = handleResult;
+
+    // Track whether we're already scheduling a restart to avoid duplicates
+    let restartScheduled = false;
+    const scheduleRestart = (delay: number) => {
+      if (restartScheduled || !recognitionRef.current) return;
+      restartScheduled = true;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        restartScheduled = false;
+        if (recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch {}
+        }
+      }, delay);
+    };
+
     recognition.onerror = (e: any) => {
-      if (!firedRef.current && recognitionRef.current && (e.error === "aborted" || e.error === "not-allowed")) {
-        retryTimerRef.current = setTimeout(() => {
-          if (recognitionRef.current) {
-            try { recognitionRef.current.start(); } catch {}
-          }
-        }, START_RETRY_DELAY_MS);
+      // no-speech, aborted, network — all recoverable, just restart
+      if (recognitionRef.current && (e.error === "aborted" || e.error === "not-allowed" || e.error === "no-speech" || e.error === "network")) {
+        scheduleRestart(START_RETRY_DELAY_MS);
       }
     };
+
     recognition.onend = () => {
-      // Auto-restart to keep listening across step transitions
-      if (recognitionRef.current) {
-        try { recognitionRef.current.start(); } catch {}
-      }
+      // Always restart — Chrome stops recognition after silence, errors, or tab changes
+      // Reset processed index since new recognition session produces fresh results
+      processedUpToRef.current = 0;
+      scheduleRestart(100);
     };
 
     try {
       recognition.start();
     } catch {
-      retryTimerRef.current = setTimeout(() => {
-        try { recognition.start(); } catch {}
-      }, START_RETRY_DELAY_MS);
+      scheduleRestart(START_RETRY_DELAY_MS);
     }
     recognitionRef.current = recognition;
   }, [handleResult]);
@@ -233,4 +287,6 @@ export function useConversationListener({
       releaseSpeechLock(lockIdRef.current);
     };
   }, [enabled, startRecognition]);
+
+  return { interimTranscript };
 }

@@ -690,8 +690,16 @@ http.route({
         }
       }
 
+      // Safety net: detect missed withdraw intents
+      if (parsed.type !== "withdraw" && parsed.type !== "payment_intent") {
+        const lowerMsgW = message.toLowerCase();
+        if (/\b(withdraw|cash\s*out|cashout|i-withdraw|mag-withdraw|mag-cash\s*out|off-?ramp|encash|ilabas)\b/i.test(lowerMsgW)) {
+          parsed = { type: "withdraw", text: parsed.text || "Sige, bubuksan ko ang cash out." };
+        }
+      }
+
       // Safety net: detect missed payment intents
-      if (parsed.type !== "payment_intent") {
+      if (parsed.type !== "payment_intent" && parsed.type !== "withdraw") {
         const lowerMsg = message.toLowerCase();
         const lowerText = (parsed.text ?? "").toLowerCase();
         const combined = lowerMsg + " " + lowerText;

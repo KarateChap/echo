@@ -317,6 +317,13 @@ export default function VoiceHome() {
         setStep("error");
       }
     }, [user, createFromChatIntent]),
+    onWithdraw: useCallback(() => {
+      chatAgentResetRef.current();
+      resetFlow();
+      // Delay opening the modal to let VoiceHome's SpeechRecognition cleanup
+      // effects run first — Chrome only supports one instance at a time
+      setTimeout(() => setShowWithdraw(true), 300);
+    }, []),
     onExit: useCallback(() => {
       resetFlow();
     }, []),
@@ -532,7 +539,7 @@ export default function VoiceHome() {
     const whisperEligible = isMobile
       ? blob != null && blob.size > 4000
       : peakLevel >= SPEECH_THRESHOLD && blob != null && blob.size > 8000;
-    if ((!transcript || transcript.trim().length < 2) && whisperEligible) {
+    if ((!transcript || transcript.trim().length < 2) && whisperEligible && blob) {
       try {
         setStep("chat-processing");
         const uploadUrl = await generateUploadUrl();
@@ -1698,6 +1705,7 @@ export default function VoiceHome() {
         prices={portfolioValue.prices}
         currency={currency}
         privyId={user?.id ?? ""}
+        voiceGender={voiceGender}
       />
     </div>
   );
