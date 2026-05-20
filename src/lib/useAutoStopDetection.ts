@@ -10,7 +10,6 @@ const MIN_TRANSCRIPT_LEN = 5; // need at least this many chars
 const LLM_TIMEOUT_MS = 3000; // abort LLM call after this
 const CHECK_INTERVAL_MS = isMobile ? 500 : 300; // how often to check transcript stability
 const SILENCE_LEVEL = 0.12; // audio level below this = silence
-const SPEECH_THRESHOLD = 0.25; // peak audio must exceed this to count as real speech
 const SILENCE_TIMEOUT_MS = isMobile ? 2500 : 2000; // auto-stop after this much continuous silence (fallback when SpeechRecognition produces no transcript)
 const MAX_RECORDING_MS = 15_000; // absolute max — auto-stop regardless after 15 seconds
 

@@ -550,15 +550,15 @@ export default function VoiceHome() {
         resetFlow();
         return;
       }
-      if (stepRef.current === "chat-processing") setStep("chat-listening");
+      if ((stepRef.current as FlowStep) === "chat-processing") setStep("chat-listening");
       await new Promise((r) => setTimeout(r, 500));
-      if (stepRef.current === "chat-listening") {
+      if ((stepRef.current as FlowStep) === "chat-listening") {
         await recorder.startRecording();
       }
       return;
     }
     noiseDiscardCountRef.current = 0;
-    if (stepRef.current !== "chat-processing") setStep("chat-processing");
+    if ((stepRef.current as FlowStep) !== "chat-processing") setStep("chat-processing");
     await chatAgent.sendMessage(transcript, balanceSummary);
     // After sendMessage, TTS plays automatically via the hook
     setStep("chat-speaking");
