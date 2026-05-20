@@ -70,7 +70,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
 
         {open && (
           <div
-            className="absolute left-1/2 top-full z-50 mt-2 w-48 -translate-x-1/2 overflow-y-auto rounded-xl border border-white/[0.08] backdrop-blur-xl"
+            className="absolute left-1/2 top-full z-50 mt-2 w-48 -translate-x-1/2 overflow-y-auto rounded-xl border border-white/[0.08] backdrop-blur-xl scrollbar-hide"
             style={{
               background: "rgba(15, 15, 30, 0.92)",
               boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(140, 160, 255, 0.06)",

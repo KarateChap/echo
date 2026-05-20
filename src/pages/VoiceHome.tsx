@@ -21,6 +21,7 @@ import { fundAgentWallet } from "@/lib/fundAgentWallet";
 import { useAutoStopDetection } from "@/lib/useAutoStopDetection";
 import { usePortfolioValue } from "@/lib/usePortfolioValue";
 import PortfolioValueDisplay from "@/components/PortfolioValueDisplay";
+import FxRateTicker from "@/components/FxRateTicker";
 import { useCurrency, formatFiatValue } from "@/lib/currencyConfig";
 import { useConversationListener } from "@/lib/useConversationListener";
 import { useVoiceEmail } from "@/lib/useVoiceEmail";
@@ -136,8 +137,9 @@ export default function VoiceHome() {
   const msgRecorder = useVoiceRecorder();
   const msgStartRef = useRef<number>(0);
 
-  // Pre-warm the microphone on mount to eliminate permission popup delay during drag
-  useEffect(() => { recorder.prewarmMic(); }, []);
+  // Pre-warm the microphone on mount to eliminate permission popup delay during drag.
+  // Skipped on mobile — holding a getUserMedia stream causes earpiece audio routing.
+  useEffect(() => { if (!isMobile) recorder.prewarmMic(); }, []);
 
   const [ttsAudioEl, setTtsAudioEl] = useState<HTMLAudioElement | null>(null);
   const [ttsHasPlayed, setTtsHasPlayed] = useState(false);
@@ -498,6 +500,8 @@ export default function VoiceHome() {
     if (stepRef.current !== "chat-listening") return;
     const peakLevel = chatAutoStop.peakAudioLevel;
     const blob = await recorder.stopRecording();
+    // Let audio session switch from recording to playback mode on mobile
+    if (isMobile) await new Promise(r => setTimeout(r, 400));
     let transcript = chatAutoStop.interimTranscript;
 
     // Speech energy gate — if audio never reached speech level, discard
@@ -571,6 +575,8 @@ export default function VoiceHome() {
     if (!user) return;
     const blob = await recorder.stopRecording();
     if (!blob) return;
+    // Let audio session switch from recording to playback mode on mobile
+    if (isMobile) await new Promise(r => setTimeout(r, 400));
     if (!selectedToken) {
       setErrorMessage("No token selected. Please tap a token first.");
       setStep("error");
@@ -877,6 +883,8 @@ export default function VoiceHome() {
         </div>
       </header>
 
+      <FxRateTicker prices={portfolioValue.prices} loading={portfolioValue.loading} />
+
       <main className="flex flex-1 flex-col items-center justify-center gap-4 pt-6">
 
         {/* === ORB + TOKENS: shown during idle, recording, processing, and chat === */}
@@ -1042,6 +1050,9 @@ export default function VoiceHome() {
               {step === "idle" && (
                 <div>
                   <span className="text-white/40">Drag a token to send, or tap the orb to chat</span>
+                  {recorder.error && (
+                    <p className="text-xs text-red-400/70 mt-1">{recorder.error}</p>
+                  )}
                 </div>
               )}
               {step === "recording" && (

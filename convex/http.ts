@@ -399,13 +399,13 @@ http.route({
 
 // ── Token Prices + FX Rates ──────────────────────────────────────────────────
 const COINGECKO_URL =
-  "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,usd-coin&vs_currencies=usd,php,eur,gbp,jpy,sgd,krw,aud,cad,chf,cny,hkd,inr,idr,myr,nzd,thb,twd,vnd,aed,sar,brl,mxn,zar";
+  "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,usd-coin&vs_currencies=usd,php,eur,gbp,jpy,sgd,krw,aud,cad,chf,cny,hkd,inr,idr,myr,nzd,thb,twd,vnd,mmk,khr,lak,bnd,aed,sar,brl,mxn,zar";
 
 const SUPPORTED_CURRENCIES = [
   "PHP", "USD", "EUR", "GBP", "JPY", "SGD", "KRW",
   "AUD", "CAD", "CHF", "CNY", "HKD", "INR", "IDR",
-  "MYR", "NZD", "THB", "TWD", "VND", "AED", "SAR",
-  "BRL", "MXN", "ZAR",
+  "MYR", "NZD", "THB", "TWD", "VND", "MMK", "KHR",
+  "LAK", "BND", "AED", "SAR", "BRL", "MXN", "ZAR",
 ];
 
 let priceCache: { data: unknown; ts: number } | null = null;

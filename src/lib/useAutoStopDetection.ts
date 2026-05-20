@@ -201,8 +201,10 @@ export function useAutoStopDetection({
       }
 
       // === Fallback 2: audio-level silence (for when SpeechRecognition fails) ===
-      // Only in chat mode (skipCompletenessCheck), and only after user has spoken
-      if (skipCheckRef.current && hadAnyAudioRef.current && transcript.length < MIN_TRANSCRIPT_LEN) {
+      // Applies in both chat and payment modes — if speech was detected but
+      // SpeechRecognition produced no transcript, stop on silence and let
+      // Whisper (backend) handle transcription.
+      if (hadAnyAudioRef.current && transcript.length < MIN_TRANSCRIPT_LEN) {
         const silenceDuration = now - lastLoudRef.current;
         if (silenceDuration >= SILENCE_TIMEOUT_MS) {
           stoppedRef.current = true;

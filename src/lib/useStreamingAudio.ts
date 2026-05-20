@@ -219,6 +219,7 @@ async function playFallback(
     if (!started) {
       started = true;
       audio.src = blobUrl;
+      audio.load();
       onStartRef.current?.(audio);
       audio.play().catch(() => {});
     } else if (final && audio.ended) {

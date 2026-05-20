@@ -26,7 +26,7 @@ Push the current branch's changes to the main branch on the remote.
    - Merge the feature branch into main: `git merge <branch-name>`
    - If there are merge conflicts, stop and inform the user about the conflicts so they can resolve them.
    - If merge succeeds, push to remote: `git push origin main`
-   - Switch back to the original branch: `git checkout <branch-name>`
+   - Stay on main. Do NOT switch back to the original branch.
 
 5. **Report the result** to the user (success or any issues encountered).
 
@@ -34,4 +34,3 @@ Push the current branch's changes to the main branch on the remote.
 
 - Never force push (`--force` or `-f`).
 - If there are merge conflicts, do NOT attempt to auto-resolve. Inform the user and let them handle it.
-- Always switch back to the original branch after pushing to main.

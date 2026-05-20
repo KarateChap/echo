@@ -20,6 +20,10 @@ export const CURRENCY_CONFIG: Record<string, { symbol: string; locale: string; l
   THB: { symbol: "฿", locale: "th-TH", label: "Thai Baht" },
   TWD: { symbol: "NT$", locale: "zh-TW", label: "Taiwan Dollar" },
   VND: { symbol: "₫", locale: "vi-VN", label: "Vietnamese Dong" },
+  MMK: { symbol: "K", locale: "my-MM", label: "Myanmar Kyat" },
+  KHR: { symbol: "៛", locale: "km-KH", label: "Cambodian Riel" },
+  LAK: { symbol: "₭", locale: "lo-LA", label: "Lao Kip" },
+  BND: { symbol: "B$", locale: "ms-BN", label: "Brunei Dollar" },
   AED: { symbol: "د.إ", locale: "ar-AE", label: "UAE Dirham" },
   SAR: { symbol: "﷼", locale: "ar-SA", label: "Saudi Riyal" },
   BRL: { symbol: "R$", locale: "pt-BR", label: "Brazilian Real" },
@@ -60,7 +64,7 @@ export function useCurrency() {
 
 export function formatFiatValue(amount: number, currency: string): string {
   const config = CURRENCY_CONFIG[currency] ?? { locale: "en-US" };
-  const noFractions = currency === "JPY" || currency === "KRW";
+  const noFractions = currency === "JPY" || currency === "KRW" || currency === "MMK" || currency === "KHR" || currency === "LAK";
   return new Intl.NumberFormat(config.locale, {
     style: "currency",
     currency,

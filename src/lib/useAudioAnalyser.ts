@@ -22,6 +22,15 @@ export function useAudioAnalyser(
       return;
     }
 
+    // On mobile, skip AudioContext for mic streams — connecting a MediaStream to
+    // AudioContext puts the browser in "communication" audio session mode, routing
+    // all playback through the earpiece instead of the speaker. TTS audio element
+    // analysis still works (it's not a MediaStream).
+    if (isMobile && source instanceof MediaStream) {
+      levelRef.current = 0;
+      return;
+    }
+
     let cancelled = false;
 
     const ctx = new AudioContext();

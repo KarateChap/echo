@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isMobile } from "./isMobile";
 
 export type RecorderStatus = "idle" | "requesting" | "recording" | "stopping" | "error";
 
@@ -9,6 +10,19 @@ const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   noiseSuppression: true,
   sampleRate: 16000,
 };
+
+function pickMimeType(): string {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+  ];
+  for (const mt of candidates) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mt)) return mt;
+  }
+  return "";
+}
 
 export function useVoiceRecorder() {
   const [status, setStatus] = useState<RecorderStatus>("idle");
@@ -34,6 +48,9 @@ export function useVoiceRecorder() {
 
   // Pre-warm the microphone so there's no permission popup delay when recording starts
   const prewarmMic = useCallback(async () => {
+    // On mobile, skip prewarming — holding a getUserMedia stream puts iOS/Android
+    // in "communication" audio session mode, routing playback through the earpiece.
+    if (isMobile) return;
     if (prewarmedStreamRef.current) return;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
@@ -57,10 +74,11 @@ export function useVoiceRecorder() {
       }
       setStream(micStream);
       const stream = micStream;
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const mime = pickMimeType();
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      const actualMime = recorder.mimeType || "audio/webm";
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -69,7 +87,7 @@ export function useVoiceRecorder() {
         stream.getTracks().forEach((t) => t.stop());
         setStream(null);
         clearTick();
-        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const blob = new Blob(chunksRef.current, { type: actualMime });
         chunksRef.current = [];
         setStatus("idle");
         setElapsedMs(0);
@@ -88,6 +106,7 @@ export function useVoiceRecorder() {
         }
       }, 500);
     } catch (e) {
+      console.error("[useVoiceRecorder] startRecording failed:", e);
       setStatus("error");
       setError(e instanceof Error ? e.message : "Mic permission denied");
     }
