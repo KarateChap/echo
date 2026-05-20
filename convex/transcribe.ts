@@ -4,6 +4,30 @@ import { v } from "convex/values";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 
+/** Map Whisper's full language name to ISO 639-1 code. */
+const LANG_NAME_TO_CODE: Record<string, string> = {
+  tagalog: "tl",
+  english: "en",
+  japanese: "ja",
+  chinese: "zh",
+  korean: "ko",
+  cebuano: "ceb",
+  spanish: "es",
+  french: "fr",
+  german: "de",
+  portuguese: "pt",
+  italian: "it",
+  russian: "ru",
+  arabic: "ar",
+  hindi: "hi",
+  thai: "th",
+  vietnamese: "vi",
+  indonesian: "id",
+  malay: "ms",
+  dutch: "nl",
+  turkish: "tr",
+};
+
 export const transcribeAudio = internalAction({
   args: {
     sessionId: v.id("voiceSessions"),
@@ -26,8 +50,8 @@ export const transcribeAudio = internalAction({
       const form = new FormData();
       form.append("file", audioBlob, "audio.webm");
       form.append("model", "whisper-1");
-      form.append("language", "tl"); // Tagalog hint; Whisper still handles English code-switching
-      form.append("response_format", "json");
+      // No language hint — let Whisper auto-detect the spoken language
+      form.append("response_format", "verbose_json");
 
       const res = await fetch(WHISPER_URL, {
         method: "POST",
@@ -40,12 +64,17 @@ export const transcribeAudio = internalAction({
         throw new Error(`Whisper ${res.status}: ${detail.slice(0, 200)}`);
       }
 
-      const json = (await res.json()) as { text: string };
+      const json = (await res.json()) as { text: string; language?: string };
       const transcript = json.text?.trim() ?? "";
+
+      // Map Whisper's detected language name to ISO code
+      const langName = (json.language ?? "").toLowerCase();
+      const detectedLanguage = LANG_NAME_TO_CODE[langName] ?? "en";
 
       await ctx.runMutation(internal.voiceSessions.setTranscript, {
         sessionId,
         transcript,
+        detectedLanguage,
       });
     } catch (e) {
       await ctx.runMutation(internal.voiceSessions.setError, {

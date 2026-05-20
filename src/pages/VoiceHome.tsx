@@ -23,9 +23,10 @@ import { usePortfolioValue } from "@/lib/usePortfolioValue";
 import PortfolioValueDisplay from "@/components/PortfolioValueDisplay";
 import { useConversationListener } from "@/lib/useConversationListener";
 import { useVoiceEmail } from "@/lib/useVoiceEmail";
+import { useConversationAgent } from "@/lib/useConversationAgent";
 import type { Id } from "../../convex/_generated/dataModel";
 
-type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "funding" | "done" | "error";
+type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "funding" | "done" | "error" | "chat-listening" | "chat-processing" | "chat-speaking";
 type ProcessingSubStep = "uploading" | "transcribing" | "parsing";
 
 function StepDot({ active, done }: { active: boolean; done: boolean }) {
@@ -148,7 +149,7 @@ export default function VoiceHome() {
 
   // Open/close a passive mic stream during voice-interactive steps
   // so the orb visualizer responds to the user's voice
-  const needsPassiveMic = ["confirm", "ask-email", "ask-voice-msg", "done", "error"].includes(step);
+  const needsPassiveMic = ["confirm", "ask-email", "ask-voice-msg", "done", "error", "chat-speaking"].includes(step);
   useEffect(() => {
     if (!needsPassiveMic) {
       setPassiveMicStream((prev) => {
@@ -196,6 +197,18 @@ export default function VoiceHome() {
     convexUrl: import.meta.env.VITE_CONVEX_URL ?? "",
   });
 
+  // Chat mode auto-stop: silence-only (no LLM completeness check)
+  const chatAutoStopRef = useRef<() => void>(() => {});
+  const chatAutoStop = useAutoStopDetection({
+    enabled: step === "chat-listening",
+    audioLevelRef: micLevelRef,
+    elapsedMs: recorder.elapsedMs,
+    selectedToken: null,
+    onAutoStop: () => chatAutoStopRef.current(),
+    convexUrl: import.meta.env.VITE_CONVEX_URL ?? "",
+    skipCompletenessCheck: true,
+  });
+
   const session = useQuery(
     api.voiceSessions.get,
     sessionId ? { sessionId } : "skip",
@@ -215,6 +228,89 @@ export default function VoiceHome() {
 
   // Derive Convex HTTP site URL for streaming TTS and email parsing
   const convexSiteUrl = (import.meta.env.VITE_CONVEX_URL ?? "").replace(/\.convex\.cloud\/?$/, ".convex.site");
+
+  const createFromChatIntent = useMutation(api.voiceSessions.createFromChatIntent);
+
+  // Build balance summary string for the chat agent
+  const balanceSummary = useMemo(() => {
+    if (balanceLoading || balances.length === 0) return undefined;
+    const parts: string[] = balances
+      .map((b) => {
+        const val = parseFloat(b.formatted);
+        if (val === 0) return "";
+        const isEth = b.token.symbol === "ETH";
+        return `${val.toLocaleString(undefined, { minimumFractionDigits: isEth ? 4 : 2, maximumFractionDigits: isEth ? 4 : 2 })} ${b.token.symbol}`;
+      })
+      .filter((s) => s.length > 0);
+    const curr = portfolioValue.currencies[0] ?? "USD";
+    const totalVal = portfolioValue.total[curr];
+    if (totalVal) {
+      parts.push(`(Total: ~${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${curr})`);
+    }
+    return parts.join(", ") || undefined;
+  }, [balances, balanceLoading, portfolioValue]);
+
+  // Ref to access chatAgent.reset() from within its own callbacks
+  const chatAgentResetRef = useRef<() => void>(() => {});
+
+  // Conversation agent hook for chat mode
+  const chatAgent = useConversationAgent({
+    convexSiteUrl,
+    privyId: user?.id ?? "",
+    voiceGender,
+    onPaymentIntent: useCallback(async (intent: any, token?: string, aiReadbackText?: string) => {
+      if (!user) return;
+      try {
+        const name = intent.recipient?.name ?? "recipient";
+        const amount = (intent.amount ?? intent.amountUsdc)?.toLocaleString() ?? "?";
+        const tok = token ?? intent.token ?? "USDC";
+        // Use AI-generated readback (in user's language) if available, else fallback to Taglish
+        const readbackText = aiReadbackText || `Sige. Magpapadala ng ${amount} ${tok} kay ${name}. I-confirm mo lang para mag-proceed.`;
+        const sid = await createFromChatIntent({
+          privyId: user.id,
+          intent: JSON.stringify(intent),
+          readbackText,
+          selectedToken: token,
+        });
+        // Stop any chat audio, reset chat state
+        chatAgentResetRef.current();
+        // Reset TTS refs so confirm view can play its own readback
+        hasPlayedRef.current = null;
+        hasPlayedFallbackRef.current = null;
+        elevenLabsPlayedRef.current = false;
+        if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+        setTtsAudioEl(null);
+        setTtsHasPlayed(false);
+        setSessionId(sid);
+        setSelectedToken(tok);
+        setStep("confirm");
+      } catch {
+        setErrorMessage("Failed to process payment command.");
+        setStep("error");
+      }
+    }, [user, createFromChatIntent]),
+    onExit: useCallback(() => {
+      resetFlow();
+    }, []),
+    onTtsStart: useCallback((audioEl: HTMLAudioElement) => {
+      setTtsAudioEl(audioEl);
+    }, []),
+    onTtsEnd: useCallback(() => {
+      setTtsAudioEl(null);
+    }, []),
+  });
+
+  // Keep chatAgent reset ref in sync
+  chatAgentResetRef.current = chatAgent.reset;
+
+  // Auto-resume listening after chat TTS finishes
+  useEffect(() => {
+    if (step === "chat-speaking" && !chatAgent.isPlayingTts && !chatAgent.isProcessing) {
+      // TTS just finished — resume listening
+      setStep("chat-listening");
+      recorder.startRecording();
+    }
+  }, [step, chatAgent.isPlayingTts, chatAgent.isProcessing, recorder]);
 
   // Voice email capture — active during ask-email step
   const voiceEmail = useVoiceEmail({
@@ -343,6 +439,32 @@ export default function VoiceHome() {
     setStep("recording");
     await recorder.startRecording();
   }, [user, recorder]);
+
+  // Handle orb tap — enter chat mode (no token selected)
+  const handleOrbTap = useCallback(async () => {
+    if (!user || step !== "idle") return;
+    setStep("chat-listening");
+    await recorder.startRecording();
+  }, [user, step, recorder]);
+
+  // Chat auto-stop handler
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  chatAutoStopRef.current = async () => {
+    if (stepRef.current !== "chat-listening") return;
+    await recorder.stopRecording();
+    const transcript = chatAutoStop.interimTranscript;
+    if (!transcript || transcript.trim().length < 2) {
+      // Nothing said — resume listening
+      setStep("chat-listening");
+      await recorder.startRecording();
+      return;
+    }
+    setStep("chat-processing");
+    await chatAgent.sendMessage(transcript, balanceSummary);
+    // After sendMessage, TTS plays automatically via the hook
+    setStep("chat-speaking");
+  };
 
   // Keep auto-stop ref in sync
   handleStopRef.current = () => handleStopRecording();
@@ -528,6 +650,8 @@ export default function VoiceHome() {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
     setTtsAudioEl(null);
     setTtsHasPlayed(false);
+    chatAgent.reset();
+    if (recorder.status === "recording") recorder.stopRecording();
   }
 
   useEffect(() => {
@@ -558,32 +682,33 @@ export default function VoiceHome() {
     ttsPlaying: !!ttsAudioEl,
     commandMap: {
       confirm: [
-        { keywords: ["approve", "confirm", "proceed"], action: () => handleApprove() },
-        { keywords: ["cancel", "nevermind", "never mind"], action: () => resetFlow() },
+        { keywords: ["approve", "confirm", "proceed", "sige", "go ahead", "let's go", "lets go", "push through", "send it", "okay", "yes"], action: () => handleApprove() },
+        { keywords: ["cancel", "nevermind", "never mind", "huwag", "wag na", "ayaw"], action: () => resetFlow() },
       ],
       "ask-email-confirm": [
-        { keywords: ["yes", "correct", "confirm"], action: () => { setRecipientEmail(voiceEmail.parsedEmail!); setStep("ask-voice-msg"); } },
-        { keywords: ["try again", "retry", "no"], action: () => { voiceEmail.retry(); setRecipientEmail(""); } },
+        { keywords: ["yes", "correct", "confirm", "sige", "oo", "tama"], action: () => { setRecipientEmail(voiceEmail.parsedEmail!); setStep("ask-voice-msg"); } },
+        { keywords: ["try again", "retry", "no", "hindi", "ulit"], action: () => { voiceEmail.retry(); setRecipientEmail(""); } },
       ],
       "ask-voice-msg": [
-        { keywords: ["record", "sure"], action: () => handleRecordMessage() },
-        { keywords: ["skip", "pass"], action: () => handleFinalize() },
+        { keywords: ["record", "sure", "sige", "okay"], action: () => handleRecordMessage() },
+        { keywords: ["skip", "pass", "wag na", "huwag"], action: () => handleFinalize() },
       ],
       error: [
-        { keywords: ["try again", "retry"], action: () => resetFlow() },
+        { keywords: ["try again", "retry", "ulit"], action: () => resetFlow() },
       ],
       done: [
-        { keywords: ["new payment", "again", "try again"], action: () => resetFlow() },
+        { keywords: ["new payment", "again", "try again", "ulit"], action: () => resetFlow() },
         { keywords: ["rules", "my rules"], action: () => navigate("/app/rules") },
         { keywords: ["activity", "transactions"], action: () => navigate("/app/activity") },
-        { keywords: ["dismiss", "close", "go back"], action: () => resetFlow() },
+        { keywords: ["dismiss", "close", "go back", "uwi"], action: () => resetFlow() },
       ],
     },
   });
 
-  const isOrbActive = step === "recording" || step === "processing";
+  const isOrbActive = step === "recording" || step === "processing" || step === "chat-listening" || step === "chat-processing";
   // Steps where voice commands are listening — show a compact orb as visual indicator
   const isVoiceListening = ["confirm", "ask-email", "ask-voice-msg", "done", "error"].includes(step);
+  const isChatMode = step === "chat-listening" || step === "chat-processing" || step === "chat-speaking";
   const selectedTokenInfo = useMemo(() => allTokens.find((t) => t.symbol === selectedToken), [allTokens, selectedToken]);
 
   // 6 visible tokens + Add + Customize = 8 orbit slots
@@ -651,8 +776,8 @@ export default function VoiceHome() {
 
       <main className="flex flex-1 flex-col items-center justify-center gap-4 pt-12">
 
-        {/* === ORB + TOKENS: shown during idle, recording, processing === */}
-        {(step === "idle" || step === "recording" || step === "processing") && (
+        {/* === ORB + TOKENS: shown during idle, recording, processing, and chat === */}
+        {(step === "idle" || step === "recording" || step === "processing" || isChatMode) && (
           <>
             {step === "idle" && (
               <PortfolioValueDisplay
@@ -667,23 +792,30 @@ export default function VoiceHome() {
                 <AudioVisualizer
                   levelRef={audioLevelRef}
                   active={isOrbActive}
-                  recording={step === "recording"}
+                  recording={step === "recording" || step === "chat-listening"}
                   size={160}
-                  onClick={step === "recording" ? handleStopRecording : undefined}
-                  disabled={step === "processing"}
+                  onClick={
+                    step === "recording" ? handleStopRecording :
+                    step === "idle" ? handleOrbTap :
+                    step === "chat-listening" ? () => chatAutoStopRef.current() :
+                    undefined
+                  }
+                  disabled={step === "processing" || step === "chat-processing"}
                   waiting={step === "idle"}
                 />
               </div>
 
               {/* Drop target overlay — on top of canvas, below badges */}
-              <DropTargetOverlay
-                state={
-                  step !== "idle" ? "hidden" :
-                  drag.isOverDropZone ? "hovering" :
-                  drag.isDragging ? "dragging" :
-                  "idle"
-                }
-              />
+              {!isChatMode && (
+                <DropTargetOverlay
+                  state={
+                    step !== "idle" ? "hidden" :
+                    drag.isOverDropZone ? "hovering" :
+                    drag.isDragging ? "dragging" :
+                    "idle"
+                  }
+                />
+              )}
 
               {/* Token badges orbiting the orb */}
               {visibleTokens.map((token, i) => {
@@ -797,7 +929,9 @@ export default function VoiceHome() {
             {/* Status text below the orb area */}
             <div className="text-center text-sm">
               {step === "idle" && (
-                <span className="text-white/40">Drag a token to the orb to speak</span>
+                <div>
+                  <span className="text-white/40">Drag a token to send, or tap the orb to chat</span>
+                </div>
               )}
               {step === "recording" && (
                 <div>
@@ -847,7 +981,97 @@ export default function VoiceHome() {
                   )}
                 </div>
               )}
+
+              {/* Chat mode status */}
+              {step === "chat-listening" && (
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-white/50 text-sm" style={{ animation: "text-pulse 2s ease-in-out infinite" }}>
+                    Listening...
+                  </span>
+                  {chatAutoStop.interimTranscript && (
+                    <p className="text-xs text-white/30 italic max-w-xs mx-auto truncate">
+                      "{chatAutoStop.interimTranscript}"
+                    </p>
+                  )}
+                </div>
+              )}
+              {step === "chat-processing" && (
+                <div className="flex flex-col items-center">
+                  <span className="text-white/50 text-sm" style={{ animation: "text-pulse 2s ease-in-out infinite" }}>
+                    Thinking...
+                  </span>
+                </div>
+              )}
+              {step === "chat-speaking" && (
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-white/40 text-xs">Speaking...</span>
+                </div>
+              )}
             </div>
+
+            {/* Chat conversation area */}
+            {isChatMode && (
+              <div className="w-full max-w-sm mx-auto flex flex-col gap-3" style={{ animation: "fade-in-up 0.3s ease-out both" }}>
+                {/* Message history */}
+                {chatAgent.messages.length > 0 && (
+                  <div
+                    className="chat-hide-scrollbar flex flex-col gap-2 max-h-44 overflow-y-auto px-1 scroll-smooth"
+                    ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+                  >
+                    {chatAgent.messages.map((msg, i) => (
+                      <div
+                        key={i}
+                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`text-[13px] leading-relaxed px-3.5 py-2 max-w-[85%] ${
+                            msg.role === "user"
+                              ? "rounded-2xl rounded-br-md bg-primary/15 text-white/70 border border-primary/20"
+                              : "rounded-2xl rounded-bl-md bg-white/[0.06] text-white/60 border border-white/[0.08]"
+                          }`}
+                        >
+                          {msg.text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* End chat button — always visible */}
+                <div className="flex justify-center pt-1">
+                  <button
+                    onClick={resetFlow}
+                    className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-medium transition-all active:scale-95"
+                    style={{
+                      background: "rgba(239, 68, 68, 0.12)",
+                      border: "1px solid rgba(239, 68, 68, 0.25)",
+                      color: "rgba(252, 165, 165, 0.9)",
+                    }}
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    End chat
+                  </button>
+                  {step === "chat-speaking" && (
+                    <button
+                      onClick={() => { chatAgent.stopTts(); setStep("chat-listening"); recorder.startRecording(); }}
+                      className="ml-2 flex items-center gap-2 rounded-full px-5 py-2 text-sm font-medium transition-all active:scale-95"
+                      style={{
+                        background: "rgba(140, 160, 255, 0.1)",
+                        border: "1px solid rgba(140, 160, 255, 0.2)",
+                        color: "rgba(180, 200, 255, 0.8)",
+                      }}
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" />
+                      </svg>
+                      Interrupt
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -992,7 +1216,7 @@ export default function VoiceHome() {
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
               </svg>
-              Say "Approve" or "Cancel"
+              Say "Approve", "Sige", or "Cancel"
             </div>
           </div>
         )}

@@ -14,6 +14,8 @@ interface AutoStopOptions {
   selectedToken: string | null;
   onAutoStop: () => void;
   convexUrl: string;
+  /** When true, auto-stop on transcript stability only — skip LLM completeness check */
+  skipCompletenessCheck?: boolean;
 }
 
 interface AutoStopResult {
@@ -34,6 +36,7 @@ export function useAutoStopDetection({
   selectedToken,
   onAutoStop,
   convexUrl,
+  skipCompletenessCheck,
 }: AutoStopOptions): AutoStopResult {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isCheckingCompleteness, setIsCheckingCompleteness] = useState(false);
@@ -49,8 +52,11 @@ export function useAutoStopDetection({
   const lastCheckedTranscriptRef = useRef(""); // avoid re-checking same text
   const onAutoStopRef = useRef(onAutoStop);
 
+  const skipCheckRef = useRef(skipCompletenessCheck);
+
   elapsedRef.current = elapsedMs;
   onAutoStopRef.current = onAutoStop;
+  skipCheckRef.current = skipCompletenessCheck;
 
   // Derive HTTP endpoint: https://xxx.convex.cloud → https://xxx.convex.site
   const httpUrl = convexUrl
@@ -164,9 +170,16 @@ export function useAutoStopDetection({
       if (transcript === lastCheckedTranscriptRef.current) return; // already checked this exact text
       if (timeSinceChange < STABLE_TRANSCRIPT_MS) return;
 
-      // Transcript has been stable long enough — check completeness
+      // Transcript has been stable long enough
       lastCheckedTranscriptRef.current = transcript;
-      checkCompleteness(transcript);
+      if (skipCheckRef.current) {
+        // Chat mode: auto-stop immediately on transcript stability
+        stoppedRef.current = true;
+        onAutoStopRef.current();
+      } else {
+        // Payment mode: check completeness via LLM
+        checkCompleteness(transcript);
+      }
     }, CHECK_INTERVAL_MS);
 
     return () => {

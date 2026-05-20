@@ -56,8 +56,9 @@ export const setTranscript = internalMutation({
   args: {
     sessionId: v.id("voiceSessions"),
     transcript: v.string(),
+    detectedLanguage: v.optional(v.string()),
   },
-  handler: async (ctx, { sessionId, transcript }) => {
+  handler: async (ctx, { sessionId, transcript, detectedLanguage }) => {
     const session = await ctx.db.get(sessionId);
 
     // If speculative parse already completed (intent is set) and Whisper transcript
@@ -65,20 +66,21 @@ export const setTranscript = internalMutation({
     if (session?.speculativeParseDone && session.intent && session.preTranscript) {
       const similarity = computeSimilarity(session.preTranscript.toLowerCase(), transcript.toLowerCase());
       if (similarity >= 0.7) {
-        // Transcripts are similar enough — just update the transcript, keep existing intent
-        await ctx.db.patch(sessionId, { transcript });
+        // Transcripts are similar enough — just update the transcript + language, keep existing intent
+        await ctx.db.patch(sessionId, { transcript, ...(detectedLanguage ? { detectedLanguage } : {}) });
         return;
       }
       // Transcripts diverged — need to re-parse with the more accurate Whisper transcript
     }
 
-    await ctx.db.patch(sessionId, { transcript, status: "parsing" });
+    await ctx.db.patch(sessionId, { transcript, status: "parsing", ...(detectedLanguage ? { detectedLanguage } : {}) });
 
     // Chain: kick off intent parsing with the accurate Whisper transcript.
     await ctx.scheduler.runAfter(0, internal.parseIntent.parseIntent, {
       sessionId,
       transcript,
       selectedToken: session?.selectedToken,
+      detectedLanguage,
     });
   },
 });
@@ -112,98 +114,102 @@ export const setIntent = internalMutation({
   args: {
     sessionId: v.id("voiceSessions"),
     intent: v.string(),
+    readbackText: v.optional(v.string()),
+    detectedLanguage: v.optional(v.string()),
   },
-  handler: async (ctx, { sessionId, intent }) => {
-    // Build a human-friendly confirmation sentence for TTS readback.
-    let readbackText: string | undefined;
-    try {
-      const parsed = JSON.parse(intent);
-      if (!parsed.error) {
-        const session = await ctx.db.get(sessionId);
-        const name = parsed.recipient?.name ?? "the recipient";
-        const amount = (parsed.amount ?? parsed.amountUsdc)?.toLocaleString() ?? "?";
-        const token = session?.selectedToken ?? parsed.token ?? "Unknown";
+  handler: async (ctx, { sessionId, intent, readbackText: providedReadback, detectedLanguage }) => {
+    // Use GPT-generated readback if provided, otherwise build Taglish fallback.
+    let readbackText: string | undefined = providedReadback;
+    if (!readbackText) {
+      try {
+        const parsed = JSON.parse(intent);
+        if (!parsed.error) {
+          const session = await ctx.db.get(sessionId);
+          const name = parsed.recipient?.name ?? "the recipient";
+          const amount = (parsed.amount ?? parsed.amountUsdc)?.toLocaleString() ?? "?";
+          const token = session?.selectedToken ?? parsed.token ?? "Unknown";
 
-        let scheduleLabel = "";
-        if (parsed.schedule) {
-          const s = parsed.schedule;
-          if (s.kind === "monthly") {
-            if (s.value === "last") {
-              scheduleLabel = "every month, sa last day";
-            } else {
-              scheduleLabel = `every month, tuwing ika-${s.value}`;
-            }
-          } else if (s.kind === "weekly") {
-            scheduleLabel = `every ${s.value}`;
-          } else if (s.kind === "daily") {
-            scheduleLabel = "araw-araw";
-          } else if (s.kind === "biweekly") {
-            scheduleLabel = `every other ${s.value}`;
-          } else if (s.kind === "once") {
-            const d = new Date(s.value + "T00:00:00");
-            if (!isNaN(d.getTime())) {
-              scheduleLabel = `sa ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
-            } else {
-              scheduleLabel = `sa ${s.value}`;
-            }
-          } else if (s.kind === "seconds") {
-            const n = parseInt(s.value);
-            if (parsed.kind === "oneShot") {
-              scheduleLabel = n >= 60
-                ? `pagkatapos ng ${Math.round(n / 60)} minute${Math.round(n / 60) === 1 ? "" : "s"}`
-                : `pagkatapos ng ${n} second${n === 1 ? "" : "s"}`;
-            } else {
-              scheduleLabel = n === 1 ? "every second" : `every ${n} seconds`;
-            }
-          } else if (s.kind === "yearly") {
-            const [month, day] = s.value.split("-").map(Number);
-            const date = new Date(2000, month - 1, day);
-            const monthName = date.toLocaleDateString("en-US", { month: "long" });
-            scheduleLabel = `every year, tuwing ${monthName} ${day}`;
-          } else if (s.kind === "cron") {
-            const parts = s.value.trim().split(/\s+/);
-            if (parts.length === 5) {
-              const [min, hour] = parts;
-              const minStep = min.match(/^\*\/(\d+)$/);
-              const hourStep = hour.match(/^\*\/(\d+)$/);
-              if (min === "*" && hour === "*") {
-                scheduleLabel = "every minute";
-              } else if (minStep) {
-                const n = parseInt(minStep[1]);
-                scheduleLabel = n === 1 ? "every minute" : `every ${n} minutes`;
-              } else if (hourStep) {
-                const n = parseInt(hourStep[1]);
-                scheduleLabel = n === 1 ? "every hour" : `every ${n} hours`;
+          let scheduleLabel = "";
+          if (parsed.schedule) {
+            const s = parsed.schedule;
+            if (s.kind === "monthly") {
+              if (s.value === "last") {
+                scheduleLabel = "every month, sa last day";
+              } else {
+                scheduleLabel = `every month, tuwing ika-${s.value}`;
+              }
+            } else if (s.kind === "weekly") {
+              scheduleLabel = `every ${s.value}`;
+            } else if (s.kind === "daily") {
+              scheduleLabel = "araw-araw";
+            } else if (s.kind === "biweekly") {
+              scheduleLabel = `every other ${s.value}`;
+            } else if (s.kind === "once") {
+              const d = new Date(s.value + "T00:00:00");
+              if (!isNaN(d.getTime())) {
+                scheduleLabel = `sa ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
+              } else {
+                scheduleLabel = `sa ${s.value}`;
+              }
+            } else if (s.kind === "seconds") {
+              const n = parseInt(s.value);
+              if (parsed.kind === "oneShot") {
+                scheduleLabel = n >= 60
+                  ? `pagkatapos ng ${Math.round(n / 60)} minute${Math.round(n / 60) === 1 ? "" : "s"}`
+                  : `pagkatapos ng ${n} second${n === 1 ? "" : "s"}`;
+              } else {
+                scheduleLabel = n === 1 ? "every second" : `every ${n} seconds`;
+              }
+            } else if (s.kind === "yearly") {
+              const [month, day] = s.value.split("-").map(Number);
+              const date = new Date(2000, month - 1, day);
+              const monthName = date.toLocaleDateString("en-US", { month: "long" });
+              scheduleLabel = `every year, tuwing ${monthName} ${day}`;
+            } else if (s.kind === "cron") {
+              const parts = s.value.trim().split(/\s+/);
+              if (parts.length === 5) {
+                const [min, hour] = parts;
+                const minStep = min.match(/^\*\/(\d+)$/);
+                const hourStep = hour.match(/^\*\/(\d+)$/);
+                if (min === "*" && hour === "*") {
+                  scheduleLabel = "every minute";
+                } else if (minStep) {
+                  const n = parseInt(minStep[1]);
+                  scheduleLabel = n === 1 ? "every minute" : `every ${n} minutes`;
+                } else if (hourStep) {
+                  const n = parseInt(hourStep[1]);
+                  scheduleLabel = n === 1 ? "every hour" : `every ${n} hours`;
+                } else {
+                  scheduleLabel = "ayon sa schedule mo";
+                }
               } else {
                 scheduleLabel = "ayon sa schedule mo";
               }
             } else {
               scheduleLabel = "ayon sa schedule mo";
             }
-          } else {
-            scheduleLabel = "ayon sa schedule mo";
           }
-        }
 
-        // Append duration or occurrence info
-        if (parsed.totalOccurrences) {
-          scheduleLabel += `, ${parsed.totalOccurrences} beses`;
-        } else if (parsed.durationMinutes) {
-          scheduleLabel += parsed.durationMinutes < 60
-            ? `, sa susunod na ${parsed.durationMinutes} minutes`
-            : `, sa susunod na ${Math.round(parsed.durationMinutes / 60)} hours`;
-        }
+          // Append duration or occurrence info
+          if (parsed.totalOccurrences) {
+            scheduleLabel += `, ${parsed.totalOccurrences} beses`;
+          } else if (parsed.durationMinutes) {
+            scheduleLabel += parsed.durationMinutes < 60
+              ? `, sa susunod na ${parsed.durationMinutes} minutes`
+              : `, sa susunod na ${Math.round(parsed.durationMinutes / 60)} hours`;
+          }
 
-        const kindLabel =
-          parsed.kind === "recurring" ? scheduleLabel || "sa recurring schedule"
-          : parsed.kind === "conditional" && parsed.condition?.direction === "above" ? `kapag tumaas ang wallet ni ${name} sa ${parsed.condition.walletBelowUsdc} ${token}`
-          : parsed.kind === "conditional" ? `kapag bumaba ang wallet ni ${name} sa ${parsed.condition?.walletBelowUsdc ?? "threshold"} ${token}`
-          : scheduleLabel ? scheduleLabel
-          : "ngayon na";
-        readbackText = `Sige. Magpapadala ng ${amount} ${token} kay ${name}, ${kindLabel}. I-confirm mo lang para mag-proceed.`;
+          const kindLabel =
+            parsed.kind === "recurring" ? scheduleLabel || "sa recurring schedule"
+            : parsed.kind === "conditional" && parsed.condition?.direction === "above" ? `kapag tumaas ang wallet ni ${name} sa ${parsed.condition.walletBelowUsdc} ${token}`
+            : parsed.kind === "conditional" ? `kapag bumaba ang wallet ni ${name} sa ${parsed.condition?.walletBelowUsdc ?? "threshold"} ${token}`
+            : scheduleLabel ? scheduleLabel
+            : "ngayon na";
+          readbackText = `Sige. Magpapadala ng ${amount} ${token} kay ${name}, ${kindLabel}. I-confirm mo lang para mag-proceed.`;
+        }
+      } catch {
+        // If JSON parse fails, skip readback
       }
-    } catch {
-      // If JSON parse fails, skip readback
     }
 
     // Check if this is the speculative parse completing (session has preTranscript, Whisper hasn't finished yet)
@@ -227,6 +233,7 @@ export const setIntent = internalMutation({
       intent,
       status: "ready",
       readbackText,
+      ...(detectedLanguage ? { detectedLanguage } : {}),
       ...(isSpeculativeParse ? { speculativeParseDone: true } : {}),
     });
 
@@ -253,6 +260,40 @@ export const setError = internalMutation({
   },
   handler: async (ctx, { sessionId, error }) => {
     await ctx.db.patch(sessionId, { status: "error", error });
+  },
+});
+
+export const createFromChatIntent = mutation({
+  args: {
+    privyId: v.string(),
+    intent: v.string(),
+    readbackText: v.string(),
+    selectedToken: v.optional(v.string()),
+  },
+  handler: async (ctx, { privyId, intent, readbackText, selectedToken }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_privyId", (q) => q.eq("privyId", privyId))
+      .unique();
+    if (!user) throw new Error("User not found");
+
+    const sessionId = await ctx.db.insert("voiceSessions", {
+      ownerId: user._id,
+      selectedToken,
+      intent,
+      readbackText,
+      status: "ready",
+    });
+
+    // Schedule background TTS synthesis for the Replay button
+    const voiceGender = user.voiceGender ?? "female";
+    await ctx.scheduler.runAfter(0, internal.synthesize.synthesizeSpeech, {
+      sessionId,
+      text: readbackText,
+      voiceGender,
+    });
+
+    return sessionId;
   },
 });
 

@@ -379,3 +379,12 @@ html, body, #root {
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: rgba(140, 160, 255, 0.3);
 }
+
+/* ── Hidden Scrollbar (chat messages) ── */
+.chat-hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.chat-hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}

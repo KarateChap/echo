@@ -268,13 +268,73 @@ ERROR CASES:
 - "Send some money regularly" (ambiguous) → {"error":"Please specify the amount and how often"}`;
 }
 
+/** ISO 639-1 code → full language name for prompting. */
+const LANG_CODE_TO_NAME: Record<string, string> = {
+  tl: "Tagalog/Taglish",
+  en: "English",
+  ja: "Japanese",
+  zh: "Chinese",
+  ko: "Korean",
+  ceb: "Cebuano/Bisaya",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  pt: "Portuguese",
+  it: "Italian",
+  ru: "Russian",
+  ar: "Arabic",
+  hi: "Hindi",
+  th: "Thai",
+  vi: "Vietnamese",
+  id: "Indonesian",
+  ms: "Malay",
+  nl: "Dutch",
+  tr: "Turkish",
+};
+
+function buildLanguageAddendum(detectedLanguage: string): string {
+  const langName = LANG_CODE_TO_NAME[detectedLanguage] ?? detectedLanguage;
+  return `
+
+────────────────────────────────
+LANGUAGE AWARENESS
+────────────────────────────────
+The user is speaking in: ${langName}.
+- Parse the intent into the SAME JSON schema regardless of the input language.
+- All JSON field names and enum values (kind, schedule kind, token names, direction) remain in English.
+- The "recipient.name" should be preserved as the user spoke it, with proper capitalization.
+- Interpret numbers in the user's language (e.g., Japanese 五千 = 5000, Chinese 一万 = 10000, Korean 만 = 10000).
+- Map relationship terms to a proper capitalized name (e.g., お母さん → "Mama", 妈妈 → "Mama", nanay → "Mama", inahan → "Mama").
+- Interpret schedule keywords in the user's language (e.g., 毎月 = monthly, 毎日 = daily, cada mes = monthly).
+
+────────────────────────────────
+READBACK TEXT (REQUIRED)
+────────────────────────────────
+In addition to the intent fields, you MUST include a "readbackText" field in your JSON output.
+This is a natural, friendly confirmation sentence in ${langName} — the SAME language the user spoke.
+It should summarize the parsed intent: amount, token, recipient, and schedule/condition.
+End with a phrase inviting the user to confirm.
+
+Examples by language:
+- Taglish: "Sige. Magpapadala ng 10,000 USDC kay Mama, every month, tuwing ika-1, 6 beses. I-confirm mo lang para mag-proceed."
+- English: "Got it. Sending 10,000 USDC to Mama, every month on the 1st, 6 times. Please confirm to proceed."
+- Japanese: "了解です。Mamaに10,000 USDCを毎月1日に6回送金します。確認してください。"
+- Cebuano/Bisaya: "Sige. Magpadala og 10,000 USDC kang Mama, kada bulan sa ika-1, 6 ka beses. I-confirm lang para mapadayon."
+- Chinese: "好的。将向Mama发送10,000 USDC，每月1日，共6次。请确认以继续。"
+- Korean: "알겠습니다. Mama에게 매월 1일에 10,000 USDC를 6회 송금합니다. 확인해 주세요."
+
+Adapt naturally for ${langName}. The readbackText must be in ${langName}, NOT in English (unless the user spoke English).
+If there is an error, do NOT include readbackText.`;
+}
+
 export const parseIntent = internalAction({
   args: {
     sessionId: v.id("voiceSessions"),
     transcript: v.string(),
     selectedToken: v.optional(v.string()),
+    detectedLanguage: v.optional(v.string()),
   },
-  handler: async (ctx, { sessionId, transcript, selectedToken }) => {
+  handler: async (ctx, { sessionId, transcript, selectedToken, detectedLanguage }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       await ctx.runMutation(internal.voiceSessions.setError, {
@@ -286,6 +346,12 @@ export const parseIntent = internalAction({
 
     try {
       let systemPrompt = buildSystemPrompt();
+
+      // Append language-awareness instructions + readback generation
+      if (detectedLanguage) {
+        systemPrompt += buildLanguageAddendum(detectedLanguage);
+      }
+
       if (selectedToken) {
         systemPrompt += `\n\nIMPORTANT: The user has pre-selected "${selectedToken}" as their token in the UI. If the user does not explicitly name a different token in their speech, you MUST use "${selectedToken}" as the token — do NOT default to USDC.`;
       }
@@ -439,9 +505,15 @@ export const parseIntent = internalAction({
         }
       }
 
+      // Extract GPT-generated readbackText from parsed response (don't store it in the intent JSON)
+      const readbackText = parsed.readbackText;
+      delete parsed.readbackText;
+
       await ctx.runMutation(internal.voiceSessions.setIntent, {
         sessionId,
         intent: JSON.stringify(parsed),
+        readbackText: readbackText || undefined,
+        detectedLanguage,
       });
     } catch (e) {
       await ctx.runMutation(internal.voiceSessions.setError, {

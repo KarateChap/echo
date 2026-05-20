@@ -106,6 +106,16 @@ export default defineSchema({
   }).index("by_token", ["token"])
     .index("by_ruleId", ["ruleId"]),
 
+  chatSessions: defineTable({
+    ownerId: v.id("users"),
+    messages: v.array(v.object({
+      role: v.union(v.literal("user"), v.literal("assistant")),
+      content: v.string(),
+      timestamp: v.number(),
+    })),
+    status: v.union(v.literal("active"), v.literal("closed")),
+  }).index("by_owner", ["ownerId"]),
+
   voiceSessions: defineTable({
     ownerId: v.id("users"),
     selectedToken: v.optional(v.string()), // token the user tapped in the UI
@@ -115,6 +125,7 @@ export default defineSchema({
     readbackStorageId: v.optional(v.id("_storage")),
     readbackText: v.optional(v.string()),
     preTranscript: v.optional(v.string()),
+    detectedLanguage: v.optional(v.string()),
     speculativeParseDone: v.optional(v.boolean()),
     status: v.union(
       v.literal("recording"),

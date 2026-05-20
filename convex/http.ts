@@ -1,5 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
+import { api } from "./_generated/api";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -316,6 +317,69 @@ http.route({
 
 http.route({
   path: "/api/tts",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...CORS_HEADERS,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }),
+});
+
+// ── Chat Agent ───────────────────────────────────────────────────────────────
+
+http.route({
+  path: "/api/chat",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const { privyId, message, balanceSummary } = (await request.json()) as {
+        privyId: string;
+        message: string;
+        balanceSummary?: string;
+      };
+
+      if (!privyId || !message) {
+        return new Response(JSON.stringify({ error: "Missing privyId or message" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      const result = await ctx.runAction(api.chatAgent.chat, {
+        privyId,
+        message,
+        balanceSummary,
+      });
+
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+      });
+    } catch (e: any) {
+      console.error("Chat agent error:", e);
+      return new Response(
+        JSON.stringify({
+          type: "answer",
+          text: "Sorry, may problema ako ngayon. Try mo ulit.",
+          intent: null,
+          chatSessionId: null,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        },
+      );
+    }
+  }),
+});
+
+http.route({
+  path: "/api/chat",
   method: "OPTIONS",
   handler: httpAction(async () => {
     return new Response(null, {
