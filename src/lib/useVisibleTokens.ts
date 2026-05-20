@@ -3,7 +3,7 @@ import type { Token } from "./tokens";
 
 const STORAGE_KEY = "echo-visible-tokens";
 const HIDDEN_KEY = "echo-hidden-tokens";
-const MAX_VISIBLE = 6;
+const MAX_VISIBLE = 5;
 
 function tokenKey(t: Token) {
   return `${t.symbol}::${t.address}`;
@@ -18,7 +18,7 @@ function loadJson<T>(key: string, fallback: T): T {
 }
 
 /**
- * Manages which tokens are visible in the orbit ring (max 6).
+ * Manages which tokens are visible in the orbit ring (max 5).
  * Persists to localStorage. No auto-add effects — completely deterministic.
  */
 export function useVisibleTokens(allTokens: Token[]) {

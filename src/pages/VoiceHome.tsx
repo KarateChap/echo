@@ -27,7 +27,8 @@ import { useConversationListener } from "@/lib/useConversationListener";
 import { useVoiceEmail } from "@/lib/useVoiceEmail";
 import { useConversationAgent } from "@/lib/useConversationAgent";
 import { useStreamingAudio } from "@/lib/useStreamingAudio";
-import { isMobile } from "@/lib/isMobile";
+import { isMobile, isIOS } from "@/lib/isMobile";
+import { useIOSAudioSession } from "@/lib/useIOSAudioSession";
 import WithdrawModal from "@/components/WithdrawModal";
 import type { Id } from "../../convex/_generated/dataModel";
 
@@ -135,13 +136,12 @@ export default function VoiceHome() {
   const generateMsgUploadUrl = useMutation(api.voiceMessages.generateUploadUrl);
   const createVoiceMessage = useMutation(api.voiceMessages.create);
 
-  const recorder = useVoiceRecorder();
-  const msgRecorder = useVoiceRecorder();
-  const msgStartRef = useRef<number>(0);
+  // iOS audio session: persistent mic, speaker routing, autoplay unlock
+  const iosSession = useIOSAudioSession();
 
-  // Pre-warm the microphone on mount to eliminate permission popup delay during drag.
-  // Skipped on mobile — holding a getUserMedia stream causes earpiece audio routing.
-  useEffect(() => { if (!isMobile) recorder.prewarmMic(); }, []);
+  const recorder = useVoiceRecorder({ persistentStream: iosSession.persistentStream });
+  const msgRecorder = useVoiceRecorder({ persistentStream: iosSession.persistentStream });
+  const msgStartRef = useRef<number>(0);
 
   const [ttsAudioEl, setTtsAudioEl] = useState<HTMLAudioElement | null>(null);
   const [ttsHasPlayed, setTtsHasPlayed] = useState(false);
@@ -169,17 +169,30 @@ export default function VoiceHome() {
   const [step, setStep] = useState<FlowStep>("idle");
 
   // Open/close a passive mic stream during voice-interactive steps
-  // so the orb visualizer responds to the user's voice
-  // On mobile, skip passive mic — it's only for orb visualization and not worth the extra AudioContext + getUserMedia overhead
-  const needsPassiveMic = !isMobile && ["confirm", "ask-email", "ask-voice-msg", "done", "error", "chat-speaking"].includes(step);
+  // so the orb visualizer responds to the user's voice.
+  // On iOS: reuse the persistent stream from iosSession (no new getUserMedia call, no extra permission prompt).
+  // On other mobile: skip passive mic — not worth the overhead.
+  const needsPassiveMic = ["confirm", "ask-email", "ask-voice-msg", "done", "error", "chat-speaking"].includes(step);
   useEffect(() => {
     if (!needsPassiveMic) {
       setPassiveMicStream((prev) => {
-        prev?.getTracks().forEach((t) => t.stop());
+        // Don't stop tracks on the iOS persistent stream — only stop desktop-acquired streams
+        if (prev && !isIOS) prev.getTracks().forEach((t) => t.stop());
         return null;
       });
       return;
     }
+
+    // iOS: reuse persistent stream (no new getUserMedia, no permission prompt)
+    if (isIOS && iosSession.persistentStream) {
+      setPassiveMicStream(iosSession.persistentStream);
+      return;
+    }
+
+    // Non-iOS mobile: skip passive mic entirely
+    if (isMobile) return;
+
+    // Desktop: acquire fresh stream
     let cancelled = false;
     navigator.mediaDevices
       .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } })
@@ -195,7 +208,7 @@ export default function VoiceHome() {
         return null;
       });
     };
-  }, [needsPassiveMic]);
+  }, [needsPassiveMic, iosSession.persistentStream]);
 
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<Id<"voiceSessions"> | null>(null);
@@ -333,6 +346,7 @@ export default function VoiceHome() {
     onTtsEnd: useCallback(() => {
       setTtsAudioEl(null);
     }, []),
+    forceSpeakerRoute: iosSession.forceSpeakerRoute,
   });
 
   // Keep chatAgent reset ref in sync
@@ -387,6 +401,7 @@ export default function VoiceHome() {
       setTtsHasPlayed(true);
       audioRef.current = null;
     },
+    forceSpeakerRoute: iosSession.forceSpeakerRoute,
   });
 
   // Primary: fetch streaming ElevenLabs TTS as soon as readbackText is available
@@ -427,12 +442,17 @@ export default function VoiceHome() {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
     const audio = new Audio(url);
     audio.crossOrigin = "anonymous";
+    audio.setAttribute("playsinline", "");
     audioRef.current = audio;
     setTtsAudioEl(audio);
     audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
     audio.addEventListener("pause", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
-    audio.play().catch(() => { setTtsHasPlayed(true); });
-  }, [session?.readbackUrl]);
+    // Force speaker routing on iOS before playing
+    (async () => {
+      await iosSession.forceSpeakerRoute();
+      audio.play().catch(() => { setTtsHasPlayed(true); });
+    })();
+  }, [session?.readbackUrl, iosSession.forceSpeakerRoute]);
 
   // Safety: unlock Approve button after 5s if TTS silently failed
   useEffect(() => {
@@ -509,8 +529,9 @@ export default function VoiceHome() {
     if (stepRef.current !== "chat-listening") return;
     const peakLevel = chatAutoStop.peakAudioLevel;
     const blob = await recorder.stopRecording();
-    // Let audio session switch from recording to playback mode on mobile
-    if (isMobile) await new Promise(r => setTimeout(r, 400));
+    // Force speaker routing on iOS before TTS plays (replaces blind 400ms delay)
+    if (isIOS) await iosSession.forceSpeakerRoute();
+    else if (isMobile) await new Promise(r => setTimeout(r, 400));
     let transcript = chatAutoStop.interimTranscript;
 
     // Speech energy gate — if audio never reached speech level, discard
@@ -594,8 +615,9 @@ export default function VoiceHome() {
     if (!user) return;
     const blob = await recorder.stopRecording();
     if (!blob) return;
-    // Let audio session switch from recording to playback mode on mobile
-    if (isMobile) await new Promise(r => setTimeout(r, 400));
+    // Force speaker routing on iOS before TTS plays (replaces blind 400ms delay)
+    if (isIOS) await iosSession.forceSpeakerRoute();
+    else if (isMobile) await new Promise(r => setTimeout(r, 400));
     if (!selectedToken) {
       setErrorMessage("No token selected. Please tap a token first.");
       setStep("error");

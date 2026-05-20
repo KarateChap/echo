@@ -17,6 +17,8 @@ const supportsMediaSource =
 interface StreamingAudioOptions {
   onStart?: (audio: HTMLAudioElement) => void;
   onEnd?: () => void;
+  /** Call before audio.play() on iOS to force speaker routing */
+  forceSpeakerRoute?: () => Promise<void>;
 }
 
 interface StreamingAudioControls {
@@ -27,12 +29,15 @@ interface StreamingAudioControls {
 export function useStreamingAudio({
   onStart,
   onEnd,
+  forceSpeakerRoute,
 }: StreamingAudioOptions = {}): StreamingAudioControls {
   // Use refs for callbacks so returned functions stay stable across renders
   const onStartRef = useRef(onStart);
   const onEndRef = useRef(onEnd);
+  const forceSpeakerRef = useRef(forceSpeakerRoute);
   onStartRef.current = onStart;
   onEndRef.current = onEnd;
+  forceSpeakerRef.current = forceSpeakerRoute;
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -69,13 +74,15 @@ export function useStreamingAudio({
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
         const audio = new Audio(blobUrl);
+        audio.setAttribute("playsinline", "");
         audioRef.current = audio;
         onStartRef.current?.(audio);
 
+        await forceSpeakerRef.current?.();
         await new Promise<void>((resolve) => {
           audio.addEventListener("ended", () => resolve(), { once: true });
           audio.addEventListener("error", () => resolve(), { once: true });
-          audio.play().catch(() => resolve());
+          audio.play().catch((e) => { console.warn("[useStreamingAudio] play failed:", e); resolve(); });
         });
 
         URL.revokeObjectURL(blobUrl);
@@ -85,9 +92,9 @@ export function useStreamingAudio({
       }
 
       if (supportsMediaSource) {
-        await playMediaSource(response, ac, audioRef, onStartRef, onEndRef, cleanup);
+        await playMediaSource(response, ac, audioRef, onStartRef, onEndRef, cleanup, forceSpeakerRef);
       } else {
-        await playFallback(response, ac, audioRef, onStartRef, onEndRef, cleanup);
+        await playFallback(response, ac, audioRef, onStartRef, onEndRef, cleanup, forceSpeakerRef);
       }
     },
     [cleanup],
@@ -105,9 +112,11 @@ async function playMediaSource(
   onStartRef: React.MutableRefObject<((audio: HTMLAudioElement) => void) | undefined>,
   onEndRef: React.MutableRefObject<(() => void) | undefined>,
   cleanup: () => void,
+  forceSpeakerRef: React.MutableRefObject<(() => Promise<void>) | undefined>,
 ) {
   const mediaSource = new MediaSource();
   const audio = new Audio();
+  audio.setAttribute("playsinline", "");
   audioRef.current = audio;
   audio.src = URL.createObjectURL(mediaSource);
 
@@ -158,7 +167,8 @@ async function playMediaSource(
           if (!started) {
             started = true;
             onStartRef.current?.(audio);
-            audio.play().catch(() => {});
+            await forceSpeakerRef.current?.();
+            audio.play().catch((e) => console.warn("[useStreamingAudio] play failed:", e));
           }
         }
       } catch (e: any) {
@@ -202,16 +212,18 @@ async function playFallback(
   onStartRef: React.MutableRefObject<((audio: HTMLAudioElement) => void) | undefined>,
   onEndRef: React.MutableRefObject<(() => void) | undefined>,
   cleanup: () => void,
+  forceSpeakerRef: React.MutableRefObject<(() => Promise<void>) | undefined>,
 ) {
   const reader = response.body!.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   let started = false;
   const audio = new Audio();
+  audio.setAttribute("playsinline", "");
   audioRef.current = audio;
   let blobUrl = "";
 
-  const createAndPlay = (final: boolean) => {
+  const createAndPlay = async (final: boolean) => {
     const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = URL.createObjectURL(blob);
@@ -221,14 +233,15 @@ async function playFallback(
       audio.src = blobUrl;
       audio.load();
       onStartRef.current?.(audio);
-      audio.play().catch(() => {});
+      await forceSpeakerRef.current?.();
+      audio.play().catch((e) => console.warn("[useStreamingAudio] fallback play failed:", e));
     } else if (final && audio.ended) {
       // Only reset src if playback already stopped (ran out of data).
       // If still playing, don't touch src — it will finish naturally.
       const currentTime = audio.currentTime;
       audio.src = blobUrl;
       audio.currentTime = currentTime;
-      audio.play().catch(() => {});
+      audio.play().catch((e) => console.warn("[useStreamingAudio] fallback resume failed:", e));
     }
   };
 
@@ -242,7 +255,7 @@ async function playFallback(
       totalBytes += value.byteLength;
 
       if (!started && totalBytes >= 4096) {
-        createAndPlay(false);
+        await createAndPlay(false);
       }
     }
   } catch (e: any) {
@@ -250,7 +263,7 @@ async function playFallback(
   }
 
   if (chunks.length > 0) {
-    createAndPlay(true);
+    await createAndPlay(true);
   }
 
   // Wait for playback to finish

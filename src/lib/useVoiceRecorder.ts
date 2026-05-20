@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isMobile } from "./isMobile";
 
 export type RecorderStatus = "idle" | "requesting" | "recording" | "stopping" | "error";
 
@@ -24,7 +23,13 @@ function pickMimeType(): string {
   return "";
 }
 
-export function useVoiceRecorder() {
+interface UseVoiceRecorderOptions {
+  /** Persistent mic stream from useIOSAudioSession — cloned for each recording to avoid re-prompting */
+  persistentStream?: MediaStream | null;
+}
+
+export function useVoiceRecorder(options: UseVoiceRecorderOptions = {}) {
+  const { persistentStream } = options;
   const [status, setStatus] = useState<RecorderStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -44,46 +49,32 @@ export function useVoiceRecorder() {
 
   useEffect(() => () => clearTick(), []);
 
-  const prewarmedStreamRef = useRef<MediaStream | null>(null);
-
-  // Pre-warm the microphone so there's no permission popup delay when recording starts
-  const prewarmMic = useCallback(async () => {
-    // On mobile, skip prewarming — holding a getUserMedia stream puts iOS/Android
-    // in "communication" audio session mode, routing playback through the earpiece.
-    if (isMobile) return;
-    if (prewarmedStreamRef.current) return;
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
-      prewarmedStreamRef.current = s;
-    } catch {
-      // Ignore — will be requested again in startRecording
-    }
-  }, []);
-
   const startRecording = useCallback(async (): Promise<void> => {
     setError(null);
     setStatus("requesting");
     try {
-      // Reuse prewarmed stream if available, otherwise request fresh
       let micStream: MediaStream;
-      if (prewarmedStreamRef.current) {
-        micStream = prewarmedStreamRef.current;
-        prewarmedStreamRef.current = null;
+
+      // If a persistent stream is available and alive, clone it to avoid new getUserMedia call
+      if (persistentStream && persistentStream.getAudioTracks().some(t => t.readyState === "live")) {
+        micStream = new MediaStream(persistentStream.getAudioTracks().map(t => t.clone()));
       } else {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
       }
+
       setStream(micStream);
       const stream = micStream;
       const mime = pickMimeType();
       const recorder = mime
         ? new MediaRecorder(stream, { mimeType: mime })
         : new MediaRecorder(stream);
-      const actualMime = recorder.mimeType || (isMobile ? "audio/mp4" : "audio/webm");
+      const actualMime = recorder.mimeType || "audio/mp4";
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        // Stop only the cloned tracks, not the persistent stream's tracks
         stream.getTracks().forEach((t) => t.stop());
         setStream(null);
         clearTick();
@@ -110,7 +101,7 @@ export function useVoiceRecorder() {
       setStatus("error");
       setError(e instanceof Error ? e.message : "Mic permission denied");
     }
-  }, []);
+  }, [persistentStream]);
 
   const stopRecording = useCallback((): Promise<Blob | null> => {
     return new Promise((resolve) => {
@@ -125,5 +116,5 @@ export function useVoiceRecorder() {
     });
   }, []);
 
-  return { status, error, elapsedMs, stream, startRecording, stopRecording, prewarmMic };
+  return { status, error, elapsedMs, stream, startRecording, stopRecording };
 }

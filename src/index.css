@@ -291,6 +291,16 @@ html, body, #root {
 
 /* ── Idle Glow Animation ── */
 
+@keyframes calendar-enter {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes calendar-exit {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-4px) scale(0.97); }
+}
+
 @keyframes idle-glow {
   0%, 100% { box-shadow: 0 0 30px rgba(124, 58, 237, 0.1); }
   50% { box-shadow: 0 0 50px rgba(124, 58, 237, 0.2); }

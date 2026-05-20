@@ -1,3 +1,5 @@
+import { DatePicker } from "./DatePicker";
+
 interface FilterBarProps {
   searchValue: string;
   onSearchChange: (value: string) => void;
@@ -54,22 +56,8 @@ export function FilterBar({
       </div>
 
       <div className="flex gap-2">
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => onDateFromChange(e.target.value)}
-          className="glass-input min-w-0 flex-1 text-xs"
-          style={{ colorScheme: "dark" }}
-          placeholder="From"
-        />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => onDateToChange(e.target.value)}
-          className="glass-input min-w-0 flex-1 text-xs"
-          style={{ colorScheme: "dark" }}
-          placeholder="To"
-        />
+        <DatePicker value={dateFrom} onChange={onDateFromChange} placeholder="From" rangeStart={dateTo} rangeRole="from" />
+        <DatePicker value={dateTo} onChange={onDateToChange} placeholder="To" rangeStart={dateFrom} rangeRole="to" />
       </div>
 
       {filteredCount !== totalCount && (

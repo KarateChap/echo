@@ -23,6 +23,8 @@ interface UseConversationAgentOptions {
   onExit: () => void;
   onTtsStart: (audioEl: HTMLAudioElement) => void;
   onTtsEnd: () => void;
+  /** Call before audio.play() on iOS to force speaker routing */
+  forceSpeakerRoute?: () => Promise<void>;
 }
 
 export function useConversationAgent({
@@ -34,6 +36,7 @@ export function useConversationAgent({
   onExit,
   onTtsStart,
   onTtsEnd,
+  forceSpeakerRoute,
 }: UseConversationAgentOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -50,6 +53,7 @@ export function useConversationAgent({
       setIsPlayingTts(false);
       onTtsEnd();
     },
+    forceSpeakerRoute,
   });
 
   const playTts = useCallback(
