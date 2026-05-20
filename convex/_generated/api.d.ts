@@ -28,6 +28,7 @@ import type * as transcribe from "../transcribe.js";
 import type * as users from "../users.js";
 import type * as voiceMessages from "../voiceMessages.js";
 import type * as voiceSessions from "../voiceSessions.js";
+import type * as withdrawals from "../withdrawals.js";
 
 import type {
   ApiFromModules,
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   voiceMessages: typeof voiceMessages;
   voiceSessions: typeof voiceSessions;
+  withdrawals: typeof withdrawals;
 }>;
 
 /**

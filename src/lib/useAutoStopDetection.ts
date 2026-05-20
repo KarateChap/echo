@@ -190,6 +190,15 @@ export function useAutoStopDetection({
         hadAnyAudioRef.current = true;
       }
 
+      // On mobile, AudioContext is disabled for mic streams (to avoid earpiece
+      // routing), so audio level is always 0.  Once we're past the minimum
+      // recording time, assume speech was present so the silence-timeout
+      // fallback can fire and hand off to Whisper.
+      if (isMobile && elapsed >= MIN_RECORDING_MS && !hadAnyAudioRef.current) {
+        hadAnyAudioRef.current = true;
+        lastLoudRef.current = now;
+      }
+
       // Guard: don't auto-stop too early
       if (elapsed < MIN_RECORDING_MS) return;
 

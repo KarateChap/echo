@@ -38,6 +38,18 @@ export const executePayment = internalAction({
       return;
     }
 
+    // Look up custom token if not a builtin
+    const token = rule.token ?? "USDC";
+    if (token !== "ETH" && !TOKEN_ADDRESSES[token]) {
+      const customToken = await ctx.runQuery(internal.customTokens.getByOwnerAndSymbol, {
+        ownerId: rule.ownerId,
+        symbol: token,
+      });
+      if (customToken) {
+        TOKEN_ADDRESSES[token] = { address: customToken.address, decimals: customToken.decimals };
+      }
+    }
+
     if (!rule.recipientWalletAddress) {
       // Check if we already sent a claim email for this rule
       const alreadySentClaim = await ctx.runQuery(internal.claims.hasClaimForRule, { ruleId });
@@ -272,6 +284,18 @@ export const executeRefund = internalAction({
     if (!rule) {
       console.error("[executeRefund] Rule not found:", ruleId);
       return;
+    }
+
+    // Look up custom token if not a builtin
+    const refundToken = rule.token;
+    if (refundToken && refundToken !== "ETH" && !TOKEN_ADDRESSES[refundToken]) {
+      const customToken = await ctx.runQuery(internal.customTokens.getByOwnerAndSymbol, {
+        ownerId: rule.ownerId,
+        symbol: refundToken,
+      });
+      if (customToken) {
+        TOKEN_ADDRESSES[refundToken] = { address: customToken.address, decimals: customToken.decimals };
+      }
     }
 
     // Get the owner's wallet address to send refund to

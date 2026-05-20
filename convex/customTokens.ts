@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const add = mutation({
@@ -43,6 +43,20 @@ export const remove = mutation({
   },
   handler: async (ctx, { tokenId }) => {
     await ctx.db.delete(tokenId);
+  },
+});
+
+export const getByOwnerAndSymbol = internalQuery({
+  args: {
+    ownerId: v.id("users"),
+    symbol: v.string(),
+  },
+  handler: async (ctx, { ownerId, symbol }) => {
+    const tokens = await ctx.db
+      .query("customTokens")
+      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .collect();
+    return tokens.find((t) => t.symbol === symbol) ?? null;
   },
 });
 

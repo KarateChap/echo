@@ -10,7 +10,7 @@ interface Toast {
   id: string;
   message: string;
   detail: string;
-  type: "sent" | "received" | "failed" | "awaiting";
+  type: "sent" | "received" | "failed" | "awaiting" | "withdrawn";
   exiting?: boolean;
   amount?: number;
   token?: string;
@@ -49,6 +49,14 @@ const ACCENT = {
     text: "#a78bfa",
     arrow: "\u2191",
   },
+  withdrawn: {
+    border: "rgba(20, 184, 166, 0.15)",
+    glow: "rgba(20, 184, 166, 0.08)",
+    icon: "rgba(20, 184, 166, 0.12)",
+    iconBorder: "rgba(20, 184, 166, 0.25)",
+    text: "#2dd4bf",
+    arrow: "\u2193",
+  },
 } as const;
 
 export default function TransactionNotifier() {
@@ -85,14 +93,30 @@ export default function TransactionNotifier() {
       seenIdsRef.current.add(tx._id);
     }
 
-    // Filter out refund transactions for recipients — only the sender should see refunds
+    // Filter out refund transactions for recipients and in-progress withdrawals
     const notifiable = newTxs.filter((tx) => {
       if (tx.error === "REFUND" && !tx.isSender) return false;
+      if (tx._type === "withdrawal" && tx.status === "processing") return false;
       return true;
     });
     if (notifiable.length === 0) return;
 
     const newToasts: Toast[] = notifiable.map((tx) => {
+      // Withdrawal toast
+      if (tx._type === "withdrawal") {
+        const isSuccess = tx.status === "success";
+        return {
+          id: tx._id,
+          message: isSuccess ? "Withdrawal Successful" : "Withdrawal Failed",
+          detail: isSuccess
+            ? `${tx.fiatAmount?.toLocaleString() ?? ""} ${tx.fiatCurrency ?? ""} to ${tx.destinationName ?? tx.recipientName}`
+            : `to ${tx.destinationName ?? tx.recipientName}`,
+          type: isSuccess ? "withdrawn" as const : "failed" as const,
+          amount: undefined,
+          token: undefined,
+        };
+      }
+
       const isRefund = tx.error === "REFUND";
       const isAwaitingClaim = tx.status === "failed" && tx.error?.includes("claim email sent");
       const isSent = tx.isSender;

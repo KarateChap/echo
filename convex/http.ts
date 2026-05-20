@@ -643,12 +643,51 @@ http.route({
         }
       }
 
-      // Parse the response
+      // Parse the response — handle cases where GPT wraps JSON in markdown or prepends text
       let parsed: { type: string; text: string; intent?: any };
       try {
         parsed = JSON.parse(rawContent);
       } catch {
-        parsed = { type: "answer", text: rawContent };
+        // Try stripping markdown code fences: ```json ... ```
+        const fenceMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fenceMatch) {
+          try {
+            parsed = JSON.parse(fenceMatch[1].trim());
+          } catch {
+            parsed = { type: "answer", text: rawContent };
+          }
+        } else {
+          // Try extracting the first JSON object from the text
+          const firstBrace = rawContent.indexOf("{");
+          const lastBrace = rawContent.lastIndexOf("}");
+          if (firstBrace !== -1 && lastBrace > firstBrace) {
+            try {
+              parsed = JSON.parse(rawContent.slice(firstBrace, lastBrace + 1));
+            } catch {
+              parsed = { type: "answer", text: rawContent };
+            }
+          } else {
+            parsed = { type: "answer", text: rawContent };
+          }
+        }
+      }
+
+      // Strip any JSON remnants from the text field (e.g. GPT echoed the schema)
+      if (parsed.text && (parsed.text.includes('{"type"') || parsed.text.includes('{"kind"'))) {
+        const jsonStart = parsed.text.search(/\{"(?:type|kind)"/);
+        if (jsonStart > 0) {
+          parsed.text = parsed.text.slice(0, jsonStart).trim();
+        } else if (jsonStart === 0) {
+          // Text IS the JSON — generate a clean fallback
+          if (parsed.intent?.recipient?.name) {
+            const name = parsed.intent.recipient.name;
+            const amount = (parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?";
+            const tok = parsed.intent.token ?? "USDC";
+            parsed.text = `Sending ${amount} ${tok} to ${name}.`;
+          } else {
+            parsed.text = rawContent.replace(/[{}"]/g, "").slice(0, 200).trim() || "Got it.";
+          }
+        }
       }
 
       // Safety net: detect missed payment intents
@@ -811,6 +850,15 @@ http.route({
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 
+/** Map MIME type to file extension for Whisper filename hint. */
+function mimeToExt(mime: string): string {
+  if (mime.includes("mp4") || mime.includes("m4a")) return "m4a";
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("wav")) return "wav";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "mp3";
+  return "webm";
+}
+
 http.route({
   path: "/api/transcribeForChat",
   method: "POST",
@@ -841,7 +889,8 @@ http.route({
       }
 
       const form = new FormData();
-      form.append("file", audioBlob, "audio.webm");
+      const ext = mimeToExt(audioBlob.type ?? "");
+      form.append("file", audioBlob, `audio.${ext}`);
       form.append("model", "whisper-1");
       form.append("response_format", "verbose_json");
 

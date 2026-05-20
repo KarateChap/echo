@@ -118,6 +118,24 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("closed")),
   }).index("by_owner", ["ownerId"]),
 
+  withdrawals: defineTable({
+    ownerId: v.id("users"),
+    token: v.string(),
+    tokenAmount: v.number(),
+    fiatAmount: v.number(),
+    fiatCurrency: v.string(),
+    country: v.string(),
+    destinationType: v.union(v.literal("ewallet"), v.literal("bank")),
+    destinationName: v.string(),
+    accountIdentifier: v.string(),
+    txHash: v.optional(v.string()),
+    status: v.union(v.literal("pending"), v.literal("processing"), v.literal("success"), v.literal("failed")),
+    referenceNumber: v.string(),
+    fee: v.number(),
+    executedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }).index("by_owner", ["ownerId"]),
+
   voiceSessions: defineTable({
     ownerId: v.id("users"),
     selectedToken: v.optional(v.string()), // token the user tapped in the UI

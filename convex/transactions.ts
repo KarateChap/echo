@@ -150,7 +150,7 @@ export const listByUser = query({
     });
     unique.sort((a, b) => (b.executedAt ?? 0) - (a.executedAt ?? 0));
 
-    return Promise.all(
+    const txItems = await Promise.all(
       unique.map(async (tx) => {
         const recipient = await ctx.db.get(tx.recipientId);
         const sender = await ctx.db.get(tx.ownerId);
@@ -172,6 +172,7 @@ export const listByUser = query({
 
         return {
           ...tx,
+          _type: "transaction" as const,
           token: resolvedToken,
           recipientName: recipient?.displayName ?? "Unknown",
           senderName: sender?.displayName ?? sender?.email ?? "Someone",
@@ -180,5 +181,32 @@ export const listByUser = query({
         };
       }),
     );
+
+    // Withdrawals
+    const withdrawals = await ctx.db
+      .query("withdrawals")
+      .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
+      .order("desc")
+      .collect();
+
+    const withdrawalItems = withdrawals.map((w) => ({
+      ...w,
+      _type: "withdrawal" as const,
+      amountUsdc: w.tokenAmount,
+      isSender: true,
+      recipientName: w.destinationName,
+      senderName: user.displayName ?? user.email ?? "You",
+      voiceMessageUrl: null as string | null,
+    }));
+
+    // Merge and sort by timestamp
+    const merged = [...txItems, ...withdrawalItems];
+    merged.sort((a, b) => {
+      const tsA = a.executedAt ?? a._creationTime;
+      const tsB = b.executedAt ?? b._creationTime;
+      return tsB - tsA;
+    });
+
+    return merged;
   },
 });

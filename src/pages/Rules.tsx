@@ -12,11 +12,30 @@ import { formatSchedule } from "@/lib/formatSchedule";
 import { revokeDelegate } from "@/lib/revokeDelegate";
 import { resolveTokenAddress } from "@/lib/delegateToAgent";
 import { BUILTIN_TOKENS } from "@/lib/tokens";
+import { useCurrency, formatFiatValue } from "@/lib/currencyConfig";
+import { usePortfolioValue } from "@/lib/usePortfolioValue";
+import { EchoLoader } from "@/components/EchoLoader";
 
 const PAGE_SIZE = 10;
 
+function tokenToFiat(
+  amount: number,
+  token: string,
+  prices: Record<string, Record<string, number>> | null,
+  currency: string,
+): string | null {
+  if (!prices) return null;
+  const tokenPrices = prices[token];
+  if (!tokenPrices) return null;
+  const rate = tokenPrices[currency.toLowerCase()];
+  if (!rate) return null;
+  return formatFiatValue(amount * rate, currency);
+}
+
 export default function Rules() {
   const { user } = usePrivy();
+  const { currency } = useCurrency();
+  const { prices, loading: pricesLoading } = usePortfolioValue([]);
   const rules = useQuery(
     api.rules.listByUser,
     user ? { privyId: user.id } : "skip",
@@ -147,35 +166,35 @@ export default function Rules() {
         <h1 className="text-xl font-semibold">Rules</h1>
       </header>
 
-      {rules === undefined && <p className="text-sm text-white/50">Loading…</p>}
+      {(rules === undefined || pricesLoading) && <EchoLoader message="Fetching rules…" />}
 
-      {rules && rules.length === 0 && <p className="text-sm text-white/50">No active rules yet.</p>}
+      {!pricesLoading && rules && rules.length === 0 && <p className="text-sm text-white/50">No active rules yet.</p>}
 
-      {rules && rules.length > 0 && (
-        <FilterBar
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder="Search recipients…"
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFromChange={setDateFrom}
-          onDateToChange={setDateTo}
-          statuses={RULE_STATUSES}
-          activeStatus={statusFilter}
-          onStatusChange={setStatusFilter}
-          filteredCount={filteredRules?.length ?? 0}
-          totalCount={rules.length}
-        />
-      )}
+      {!pricesLoading && rules && rules.length > 0 && (
+        <>
+          <FilterBar
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Search recipients…"
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+            statuses={RULE_STATUSES}
+            activeStatus={statusFilter}
+            onStatusChange={setStatusFilter}
+            filteredCount={filteredRules?.length ?? 0}
+            totalCount={rules.length}
+          />
 
-      {filteredRules && filteredRules.length === 0 && rules && rules.length > 0 && (
-        <p className="text-sm text-white/50">No rules match your filters.</p>
-      )}
+          {filteredRules && filteredRules.length === 0 && (
+            <p className="text-sm text-white/50">No rules match your filters.</p>
+          )}
 
-      {visibleRules && visibleRules.length > 0 && (
-        <div className="scrollbar-thin relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6" style={{ maskImage: "linear-gradient(to bottom, transparent 0%, black 2%, black 95%, transparent 100%)" }}>
-          <div className="space-y-3">
-            {visibleRules.map((rule) => {
+          {visibleRules && visibleRules.length > 0 && (
+            <div className="scrollbar-thin relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6" style={{ maskImage: "linear-gradient(to bottom, transparent 0%, black 2%, black 95%, transparent 100%)" }}>
+              <div className="space-y-3">
+                {visibleRules.map((rule) => {
               const isExpanded = expandedId === rule._id;
               const scheduleText = rule.kind === "recurring" && rule.schedule
                 ? formatSchedule(rule.schedule, rule.expiresAt, rule.totalOccurrences, rule.kind)
@@ -214,7 +233,15 @@ export default function Rules() {
                       </svg>
                     </div>
                   </div>
-                  <div className="text-lg font-semibold">{rule.amountUsdc.toLocaleString()} {rule.token ?? "Unknown"}</div>
+                  {(() => {
+                    const fiat = tokenToFiat(rule.amountUsdc, rule.token ?? "USDC", prices, currency);
+                    return (
+                      <div>
+                        {fiat && <div className="text-xl font-bold">{fiat}</div>}
+                        <div className={fiat ? "text-xs text-white/50" : "text-lg font-semibold"}>{rule.amountUsdc.toLocaleString()} {rule.token ?? "Unknown"}</div>
+                      </div>
+                    );
+                  })()}
                   <div className="text-white/50">{scheduleText}</div>
                   {rule.totalOccurrences && rule.totalOccurrences > 1 && (
                     <div className="flex items-center gap-2 text-xs text-white/40">
@@ -394,6 +421,8 @@ export default function Rules() {
             )}
           </div>
         </div>
+          )}
+        </>
       )}
 
       {/* Confirmation modal */}
@@ -437,7 +466,10 @@ export default function Rules() {
             <p className="text-center text-sm text-white/50">
               Are you sure you want to {confirmAction.action} the rule sending{" "}
               <span className="font-medium text-white/80">
-                {confirmAction.amountUsdc.toLocaleString()} {confirmAction.token ?? "Unknown"}
+                {(() => {
+                  const fiat = tokenToFiat(confirmAction.amountUsdc, confirmAction.token ?? "USDC", prices, currency);
+                  return fiat ? `${fiat} (${confirmAction.amountUsdc.toLocaleString()} ${confirmAction.token ?? "Unknown"})` : `${confirmAction.amountUsdc.toLocaleString()} ${confirmAction.token ?? "Unknown"}`;
+                })()}
               </span>{" "}
               to{" "}
               <span className="font-medium text-white/80">{confirmAction.recipientName}</span>?

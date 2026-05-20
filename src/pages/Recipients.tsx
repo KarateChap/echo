@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "convex/react";
 import { Link } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { EchoLoader } from "@/components/EchoLoader";
 
 
 type RecipientForm = {
@@ -117,7 +118,7 @@ export default function Recipients() {
         </button>
       </header>
 
-      {recipients === undefined && <p className="text-sm text-white/50">Loading…</p>}
+      {recipients === undefined && <EchoLoader message="Fetching recipients…" />}
 
       {recipients && recipients.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">

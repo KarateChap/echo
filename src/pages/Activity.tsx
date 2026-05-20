@@ -6,12 +6,31 @@ import { api } from "../../convex/_generated/api";
 import { useUnseenCounts } from "@/lib/useUnseenCounts";
 import { FilterBar } from "@/components/FilterBar";
 import { VoicePlayer } from "@/components/VoicePlayer";
+import { useCurrency, formatFiatValue } from "@/lib/currencyConfig";
+import { usePortfolioValue } from "@/lib/usePortfolioValue";
+import { EchoLoader } from "@/components/EchoLoader";
 
 const EXPLORER = import.meta.env.VITE_MORPH_HOODI_EXPLORER;
 const PAGE_SIZE = 10;
 
+function tokenToFiat(
+  amount: number,
+  token: string,
+  prices: Record<string, Record<string, number>> | null,
+  currency: string,
+): string | null {
+  if (!prices) return null;
+  const tokenPrices = prices[token];
+  if (!tokenPrices) return null;
+  const rate = tokenPrices[currency.toLowerCase()];
+  if (!rate) return null;
+  return formatFiatValue(amount * rate, currency);
+}
+
 export default function Activity() {
   const { user } = usePrivy();
+  const { currency } = useCurrency();
+  const { prices, loading: pricesLoading } = usePortfolioValue([]);
   const txs = useQuery(
     api.transactions.listByUser,
     user ? { privyId: user.id } : "skip",
@@ -24,7 +43,7 @@ export default function Activity() {
   const [dateTo, setDateTo] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
-  const TX_STATUSES = ["success", "failed", "submitted", "pending"];
+  const TX_STATUSES = ["success", "failed", "submitted", "pending", "withdrawal"];
 
   const filteredTxs = useMemo(() => {
     if (!txs) return undefined;
@@ -37,7 +56,11 @@ export default function Activity() {
         const matchesSender = tx.senderName?.toLowerCase().includes(q);
         if (!matchesRecipient && !matchesSender) return false;
       }
-      if (statusFilter && tx.status !== statusFilter) return false;
+      if (statusFilter === "withdrawal") {
+        if (tx._type !== "withdrawal") return false;
+      } else if (statusFilter) {
+        if (tx._type === "withdrawal" || tx.status !== statusFilter) return false;
+      }
       const ts = tx.executedAt ?? tx._creationTime;
       if (dateFrom) {
         const from = new Date(dateFrom).getTime();
@@ -89,59 +112,125 @@ export default function Activity() {
         <h1 className="text-xl font-semibold">Activity</h1>
       </header>
 
-      {txs === undefined && <p className="text-sm text-white/50">Loading…</p>}
+      {(txs === undefined || pricesLoading) && <EchoLoader message="Fetching activity…" />}
 
-      {txs && txs.length === 0 && <p className="text-sm text-white/50">No payments yet.</p>}
+      {!pricesLoading && txs && txs.length === 0 && <p className="text-sm text-white/50">No payments yet.</p>}
 
-      {txs && txs.length > 0 && (
-        <FilterBar
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder="Search by name…"
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFromChange={setDateFrom}
-          onDateToChange={setDateTo}
-          statuses={TX_STATUSES}
-          activeStatus={statusFilter}
-          onStatusChange={setStatusFilter}
-          filteredCount={filteredTxs?.length ?? 0}
-          totalCount={txs.length}
-        />
-      )}
+      {!pricesLoading && txs && txs.length > 0 && (
+        <>
+          <FilterBar
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Search by name…"
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+            statuses={TX_STATUSES}
+            activeStatus={statusFilter}
+            onStatusChange={setStatusFilter}
+            filteredCount={filteredTxs?.length ?? 0}
+            totalCount={txs.length}
+          />
 
-      {filteredTxs && filteredTxs.length === 0 && txs && txs.length > 0 && (
-        <p className="text-sm text-white/50">No transactions match your filters.</p>
-      )}
+          {filteredTxs && filteredTxs.length === 0 && (
+            <p className="text-sm text-white/50">No transactions match your filters.</p>
+          )}
 
-      {visibleTxs && visibleTxs.length > 0 && (
-        <div className="scrollbar-thin relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6" style={{ maskImage: "linear-gradient(to bottom, transparent 0%, black 2%, black 95%, transparent 100%)" }}>
-          <div className="space-y-3">
-            {visibleTxs.map((tx) => (
-              <TxCard key={tx._id} tx={tx} />
-            ))}
+          {visibleTxs && visibleTxs.length > 0 && (
+            <div className="scrollbar-thin relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6" style={{ maskImage: "linear-gradient(to bottom, transparent 0%, black 2%, black 95%, transparent 100%)" }}>
+              <div className="space-y-3">
+                {visibleTxs.map((tx) => (
+                  <TxCard key={tx._id} tx={tx} prices={prices} currency={currency} />
+                ))}
 
-            {hasMore && (
-              <div ref={sentinelRef} className="flex justify-center py-4">
-                <span className="text-xs text-white/40">Loading more…</span>
+                {hasMore && (
+                  <div ref={sentinelRef} className="flex justify-center py-4">
+                    <span className="text-xs text-white/40">Loading more…</span>
+                  </div>
+                )}
+
+                {!hasMore && filteredTxs && filteredTxs.length > PAGE_SIZE && (
+                  <p className="py-4 text-center text-xs text-white/30">
+                    All {filteredTxs.length} transactions loaded
+                  </p>
+                )}
               </div>
-            )}
-
-            {!hasMore && filteredTxs && filteredTxs.length > PAGE_SIZE && (
-              <p className="py-4 text-center text-xs text-white/30">
-                All {filteredTxs.length} transactions loaded
-              </p>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-function TxCard({ tx }: { tx: any }) {
+function TxCard({ tx, prices, currency }: { tx: any; prices: Record<string, Record<string, number>> | null; currency: string }) {
+  // Withdrawal card
+  if (tx._type === "withdrawal") {
+    return (
+      <div className="glass-card glass-card-hover space-y-1 p-4 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <TruncatedText
+              text={`↓ Withdrew to ${tx.destinationName}`}
+              className="block truncate font-medium"
+            />
+            <span className="text-[10px] text-white/40">
+              Cash out to {tx.destinationType === "ewallet" ? "e-wallet" : "bank"}
+            </span>
+          </div>
+          <span className={`shrink-0 glass-badge ${
+            tx.status === "success" ? "bg-teal-500/15 text-teal-400 border-teal-500/20" :
+            tx.status === "failed" ? "bg-red-500/15 text-red-400 border-red-500/20" :
+            "bg-amber-500/15 text-amber-400 border-amber-500/20"
+          }`}>
+            {tx.status === "success" ? "withdrawn" : tx.status}
+          </span>
+        </div>
+
+        <div>
+          <div className="text-xl font-bold">{formatFiatValue(tx.fiatAmount, tx.fiatCurrency)}</div>
+          <div className="text-xs text-white/50">{tx.tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} {tx.token}</div>
+        </div>
+
+        <div className="flex items-center gap-2 text-[11px] text-white/40">
+          <span>{tx.country}</span>
+          <span>&middot;</span>
+          <span className="font-mono">{tx.accountIdentifier}</span>
+          <span>&middot;</span>
+          <span className="font-mono">{tx.referenceNumber}</span>
+        </div>
+
+        {tx.executedAt && (
+          <div className="text-[10px] text-white/40">
+            {new Date(tx.executedAt).toLocaleString()}
+          </div>
+        )}
+
+        {tx.txHash && (
+          <a
+            href={`${EXPLORER}/tx/${tx.txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block text-[10px] text-primary transition-colors duration-150 hover:text-primary-glow"
+          >
+            View on MorphScan &rarr;
+          </a>
+        )}
+
+        {tx.error && (
+          <div className="mt-1 overflow-hidden rounded-lg bg-red-500/8 border border-red-500/15 px-3 py-2">
+            <span className="text-[11px] text-red-400 leading-relaxed">{tx.error}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Regular transaction card
   const isRefund = tx.error === "REFUND";
   const isAwaitingClaim = tx.status === "failed" && tx.error?.includes("claim email sent");
+  const fiatDisplay = tokenToFiat(tx.amountUsdc, tx.token ?? "USDC", prices, currency);
   return (
     <div className="glass-card glass-card-hover space-y-1 p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
@@ -166,7 +255,10 @@ function TxCard({ tx }: { tx: any }) {
         </span>
       </div>
 
-      <div className="text-lg font-semibold">{tx.amountUsdc.toLocaleString()} {tx.token ?? "Unknown"}</div>
+      <div>
+        {fiatDisplay && <div className="text-xl font-bold">{fiatDisplay}</div>}
+        <div className={fiatDisplay ? "text-xs text-white/50" : "text-lg font-semibold"}>{tx.amountUsdc.toLocaleString()} {tx.token ?? "Unknown"}</div>
+      </div>
 
       {tx.executedAt && (
         <div className="text-[10px] text-white/40">
@@ -187,7 +279,7 @@ function TxCard({ tx }: { tx: any }) {
           rel="noopener noreferrer"
           className="inline-block text-[10px] text-primary transition-colors duration-150 hover:text-primary-glow"
         >
-          View on MorphScan →
+          View on MorphScan &rarr;
         </a>
       )}
 

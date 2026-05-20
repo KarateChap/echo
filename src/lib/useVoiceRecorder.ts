@@ -78,7 +78,7 @@ export function useVoiceRecorder() {
       const recorder = mime
         ? new MediaRecorder(stream, { mimeType: mime })
         : new MediaRecorder(stream);
-      const actualMime = recorder.mimeType || "audio/webm";
+      const actualMime = recorder.mimeType || (isMobile ? "audio/mp4" : "audio/webm");
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);

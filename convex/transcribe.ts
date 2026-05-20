@@ -4,6 +4,15 @@ import { v } from "convex/values";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 
+/** Map MIME type to file extension for Whisper filename hint. */
+function mimeToExt(mime: string): string {
+  if (mime.includes("mp4") || mime.includes("m4a")) return "m4a";
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("wav")) return "wav";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "mp3";
+  return "webm";
+}
+
 /** Map Whisper's full language name to ISO 639-1 code. */
 const LANG_NAME_TO_CODE: Record<string, string> = {
   tagalog: "tl",
@@ -48,7 +57,8 @@ export const transcribeAudio = internalAction({
       if (!audioBlob) throw new Error("Audio blob missing from storage");
 
       const form = new FormData();
-      form.append("file", audioBlob, "audio.webm");
+      const ext = mimeToExt(audioBlob.type ?? "");
+      form.append("file", audioBlob, `audio.${ext}`);
       form.append("model", "whisper-1");
       // No language hint — let Whisper auto-detect the spoken language
       form.append("response_format", "verbose_json");

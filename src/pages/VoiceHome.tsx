@@ -28,6 +28,7 @@ import { useVoiceEmail } from "@/lib/useVoiceEmail";
 import { useConversationAgent } from "@/lib/useConversationAgent";
 import { useStreamingAudio } from "@/lib/useStreamingAudio";
 import { isMobile } from "@/lib/isMobile";
+import WithdrawModal from "@/components/WithdrawModal";
 import type { Id } from "../../convex/_generated/dataModel";
 
 type FlowStep = "idle" | "recording" | "processing" | "confirm" | "ask-email" | "ask-voice-msg" | "recording-msg" | "funding" | "done" | "error" | "chat-listening" | "chat-processing" | "chat-speaking";
@@ -121,6 +122,7 @@ export default function VoiceHome() {
   const removeCustomToken = useMutation(api.customTokens.remove);
   const [showAddToken, setShowAddToken] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
 
   // User record (for voice gender preference)
   const dbUser = useQuery(api.users.getByPrivyId, user ? { privyId: user.id } : "skip");
@@ -505,7 +507,12 @@ export default function VoiceHome() {
     let transcript = chatAutoStop.interimTranscript;
 
     // Speech energy gate — if audio never reached speech level, discard
-    if (peakLevel < SPEECH_THRESHOLD) {
+    // On mobile, peakLevel is always 0 (AudioContext disabled for mic to avoid
+    // earpiece routing), so use blob size as a proxy for speech energy.
+    const hasSpeechEnergy = isMobile
+      ? blob != null && blob.size > 4000
+      : peakLevel >= SPEECH_THRESHOLD;
+    if (!hasSpeechEnergy) {
       noiseDiscardCountRef.current++;
       if (noiseDiscardCountRef.current >= MAX_NOISE_DISCARDS) {
         resetFlow();
@@ -519,8 +526,13 @@ export default function VoiceHome() {
     }
 
     // If Web Speech API failed to produce a transcript but we have audio,
-    // fall back to Whisper transcription via the backend
-    if ((!transcript || transcript.trim().length < 2) && blob && blob.size > 8000 && peakLevel >= SPEECH_THRESHOLD) {
+    // fall back to Whisper transcription via the backend.
+    // On mobile, peakLevel is always 0, so gate on blob size only (lower
+    // threshold because mobile codecs like AAC produce smaller files).
+    const whisperEligible = isMobile
+      ? blob != null && blob.size > 4000
+      : peakLevel >= SPEECH_THRESHOLD && blob != null && blob.size > 8000;
+    if ((!transcript || transcript.trim().length < 2) && whisperEligible) {
       try {
         setStep("chat-processing");
         const uploadUrl = await generateUploadUrl();
@@ -1561,7 +1573,13 @@ export default function VoiceHome() {
       </main>
 
       {step === "idle" && (
-        <div className="flex flex-1 items-center justify-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-2">
+          <button
+            onClick={() => setShowWithdraw(true)}
+            className="btn-secondary text-xs px-4 py-1.5"
+          >
+            Cash Out
+          </button>
           <span className="text-xs text-white/30">created by team murphy</span>
         </div>
       )}
@@ -1672,6 +1690,15 @@ export default function VoiceHome() {
         </nav>
       </footer>
 
+      <WithdrawModal
+        open={showWithdraw}
+        onClose={() => setShowWithdraw(false)}
+        wallet={wallet}
+        balances={balances}
+        prices={portfolioValue.prices}
+        currency={currency}
+        privyId={user?.id ?? ""}
+      />
     </div>
   );
 }
