@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 
-const STARTUP_DELAY_MS = 1200; // ignore results briefly after first enabling
+const STARTUP_DELAY_MS = 2000; // ignore results briefly after first enabling or after TTS ends
 const START_RETRY_DELAY_MS = 500;
 
 export interface VoiceCommand {
@@ -85,22 +85,40 @@ export function useConversationListener({
   const currentStepRef = useRef(currentStep);
   const commandMapRef = useRef(commandMap);
   const ttsPlayingRef = useRef(ttsPlaying);
+  const pendingTranscriptsRef = useRef<string[]>([]);
 
   // Keep refs in sync without restarting recognition
   currentStepRef.current = currentStep;
   commandMapRef.current = commandMap;
   ttsPlayingRef.current = ttsPlaying;
 
-  // Reset fired flag when step changes so new commands can trigger
+  // Reset fired flag and pending buffer when step changes so new commands can trigger
   useEffect(() => {
     firedRef.current = false;
+    pendingTranscriptsRef.current = [];
   }, [currentStep]);
+
+  // Discard buffered transcripts when TTS finishes — they came from the AI's
+  // own voice being picked up by the microphone, not from the user speaking.
+  // Also reset the startup delay so we ignore any lingering recognition results
+  // for a brief window after TTS stops.
+  useEffect(() => {
+    if (!ttsPlaying) {
+      pendingTranscriptsRef.current = [];
+      enabledAtRef.current = Date.now();
+    }
+  }, [ttsPlaying]);
 
   const handleResult = useCallback((event: any) => {
     if (firedRef.current) return;
 
-    // Suppress matching while TTS is playing
-    if (ttsPlayingRef.current) return;
+    // Buffer transcripts during TTS so we can check them after TTS ends
+    if (ttsPlayingRef.current) {
+      for (let i = 0; i < event.results.length; i++) {
+        pendingTranscriptsRef.current.push(event.results[i][0].transcript);
+      }
+      return;
+    }
 
     // Ignore results during startup delay
     if (Date.now() - enabledAtRef.current < STARTUP_DELAY_MS) return;

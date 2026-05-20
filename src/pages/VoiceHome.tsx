@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useMutation, useQuery } from "convex/react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import { useVoiceRecorder } from "@/lib/useVoiceRecorder";
 import { useAudioAnalyser } from "@/lib/useAudioAnalyser";
@@ -19,6 +19,8 @@ import { useAudioLevelContext } from "@/lib/AudioLevelContext";
 import { useVisibleTokens } from "@/lib/useVisibleTokens";
 import { fundAgentWallet } from "@/lib/fundAgentWallet";
 import { useAutoStopDetection } from "@/lib/useAutoStopDetection";
+import { usePortfolioValue } from "@/lib/usePortfolioValue";
+import PortfolioValueDisplay from "@/components/PortfolioValueDisplay";
 import { useConversationListener } from "@/lib/useConversationListener";
 import { useVoiceEmail } from "@/lib/useVoiceEmail";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -61,6 +63,7 @@ const ORBIT_RADIUS = 148;
 export default function VoiceHome() {
   const { user, logout } = usePrivy();
   const { wallets } = useWallets();
+  const navigate = useNavigate();
   const wallet = wallets.find((w) => w.walletClientType === "privy");
 
   // Custom tokens from Convex
@@ -93,6 +96,7 @@ export default function VoiceHome() {
     }
     return map;
   }, [balances]);
+  const portfolioValue = usePortfolioValue(balances);
   const { unseenActivity, unseenRules } = useUnseenCounts();
   const addCustomToken = useMutation(api.customTokens.add);
   const removeCustomToken = useMutation(api.customTokens.remove);
@@ -259,9 +263,10 @@ export default function VoiceHome() {
         setTtsAudioEl(audio);
         audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); URL.revokeObjectURL(blobUrl); });
         audio.addEventListener("pause", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
-        audio.play().catch(() => {});
+        audio.play().catch(() => { setTtsHasPlayed(true); });
       } catch {
         elevenLabsPlayedRef.current = false; // allow fallback to stored audio
+        setTtsHasPlayed(true);
       }
     })();
 
@@ -283,8 +288,15 @@ export default function VoiceHome() {
     setTtsAudioEl(audio);
     audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
     audio.addEventListener("pause", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
-    audio.play().catch(() => {});
+    audio.play().catch(() => { setTtsHasPlayed(true); });
   }, [session?.readbackUrl]);
+
+  // Safety: unlock Approve button after 5s if TTS silently failed
+  useEffect(() => {
+    if (step !== "confirm" || ttsHasPlayed) return;
+    const timer = setTimeout(() => setTtsHasPlayed(true), 5000);
+    return () => clearTimeout(timer);
+  }, [step, ttsHasPlayed]);
 
   useEffect(() => {
     if (!session || step !== "processing") return;
@@ -378,6 +390,7 @@ export default function VoiceHome() {
         setRecipientEmail(trustedRecipient.contactEmail);
         setStep("ask-voice-msg");
       } else {
+        setShowEmailTyping(true);
         setStep("ask-email");
       }
     } catch (e) {
@@ -399,7 +412,12 @@ export default function VoiceHome() {
   }
 
   async function handleFinalize(voiceBlob?: Blob) {
-    if (!session?.intent || !user || !recipientEmail) return;
+    if (!session?.intent || !user) return;
+    if (!recipientEmail) {
+      setErrorMessage("Recipient email is missing. Please try again.");
+      setStep("error");
+      return;
+    }
     try {
       const intent = JSON.parse(session.intent);
 
@@ -556,6 +574,9 @@ export default function VoiceHome() {
       ],
       done: [
         { keywords: ["new payment", "again", "try again"], action: () => resetFlow() },
+        { keywords: ["rules", "my rules"], action: () => navigate("/app/rules") },
+        { keywords: ["activity", "transactions"], action: () => navigate("/app/activity") },
+        { keywords: ["dismiss", "close", "go back"], action: () => resetFlow() },
       ],
     },
   });
@@ -633,6 +654,13 @@ export default function VoiceHome() {
         {/* === ORB + TOKENS: shown during idle, recording, processing === */}
         {(step === "idle" || step === "recording" || step === "processing") && (
           <>
+            {step === "idle" && (
+              <PortfolioValueDisplay
+                total={portfolioValue.total}
+                currencies={portfolioValue.currencies}
+                loading={portfolioValue.loading || balanceLoading}
+              />
+            )}
             <div ref={containerRef} className="relative" style={{ width: CONTAINER, height: CONTAINER }}>
               {/* Center orb */}
               <div className="absolute inset-0 flex items-center justify-center">
@@ -853,10 +881,31 @@ export default function VoiceHome() {
                 <TokenIcon icon={selectedTokenInfo?.icon ?? allTokens.find((t) => t.symbol === parsedIntent.token)?.icon ?? "💰"} size={28} />
               </div>
               <div className="min-w-0">
-                <div className="text-xl font-bold tracking-tight">
-                  {(parsedIntent.amount ?? parsedIntent.amountUsdc)?.toLocaleString()}{" "}
-                  <span className="text-white/70">{selectedToken ?? parsedIntent.token ?? "Unknown"}</span>
-                </div>
+                {parsedIntent.amountFiat && parsedIntent.fiatCurrency ? (
+                  <>
+                    <div className="text-xl font-bold tracking-tight">
+                      {new Intl.NumberFormat(undefined, { style: "currency", currency: parsedIntent.fiatCurrency }).format(parsedIntent.amountFiat)}
+                      <span className="mx-1.5 text-white/30">→</span>
+                      <span className="text-primary/90">
+                        {(parsedIntent.amount ?? 0) < 0.01
+                          ? (parsedIntent.amount ?? 0).toFixed(6)
+                          : (parsedIntent.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })
+                        }
+                      </span>{" "}
+                      <span className="text-white/70">{selectedToken ?? parsedIntent.token ?? "Unknown"}</span>
+                    </div>
+                    {parsedIntent.conversionRate && (
+                      <div className="mt-0.5 text-[11px] text-white/30">
+                        @ {new Intl.NumberFormat(undefined, { style: "currency", currency: parsedIntent.fiatCurrency }).format(parsedIntent.conversionRate)}/{selectedToken ?? parsedIntent.token}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-xl font-bold tracking-tight">
+                    {(parsedIntent.amount ?? parsedIntent.amountUsdc)?.toLocaleString()}{" "}
+                    <span className="text-white/70">{selectedToken ?? parsedIntent.token ?? "Unknown"}</span>
+                  </div>
+                )}
                 <div className="mt-0.5 text-[13px] text-white/45">
                   to <span className="font-medium text-white/80">{parsedIntent.recipient?.name}</span>
                   <span className="mx-1.5 text-white/20">·</span>
@@ -878,7 +927,7 @@ export default function VoiceHome() {
                     <span className="truncate text-green-400/70">{trustedRecipient.contactEmail}</span>
                     <button
                       type="button"
-                      onClick={() => { setForceAskEmail(true); setStep("ask-email"); }}
+                      onClick={() => { setForceAskEmail(true); setShowEmailTyping(true); setStep("ask-email"); }}
                       className="shrink-0 text-[11px] text-white/30 underline underline-offset-2 hover:text-white/50"
                     >
                       Change
@@ -904,18 +953,27 @@ export default function VoiceHome() {
 
             {/* Replay + actions */}
             <div className="flex items-center gap-3 border-t border-white/[0.06] pt-4">
-              {session?.readbackUrl && (
+              {session?.readbackText && (
                 <button
-                  onClick={() => {
-                    const url = session?.readbackUrl;
-                    if (!url) return;
-                    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
-                    const audio = new Audio(url);
-                    audio.crossOrigin = "anonymous";
-                    audioRef.current = audio;
-                    setTtsAudioEl(audio);
-                    audio.addEventListener("ended", () => setTtsAudioEl(null));
-                    audio.play().catch(() => {});
+                  onClick={async () => {
+                    const text = session?.readbackText;
+                    if (!text || !convexSiteUrl) return;
+                    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
+                    try {
+                      const res = await fetch(`${convexSiteUrl}/api/tts`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text, voice: voiceGender }),
+                      });
+                      if (!res.ok) return;
+                      const blob = await res.blob();
+                      const blobUrl = URL.createObjectURL(blob);
+                      const audio = new Audio(blobUrl);
+                      audioRef.current = audio;
+                      setTtsAudioEl(audio);
+                      audio.addEventListener("ended", () => { setTtsAudioEl(null); URL.revokeObjectURL(blobUrl); });
+                      audio.play().catch(() => {});
+                    } catch {}
                   }}
                   className="glass-nav mr-auto flex items-center gap-1.5 text-xs text-white/50 hover:text-white/70"
                 >
@@ -923,7 +981,7 @@ export default function VoiceHome() {
                   Replay
                 </button>
               )}
-              <div className={`flex gap-3 ${session?.readbackUrl ? "" : "ml-auto"}`}>
+              <div className={`flex gap-3 ${session?.readbackText ? "" : "ml-auto"}`}>
                 <button onClick={handleApprove} disabled={!ttsHasPlayed} className={`btn-primary px-6${!ttsHasPlayed ? " opacity-40 pointer-events-none" : ""}`}>Approve</button>
                 <button onClick={resetFlow} disabled={!ttsHasPlayed} className={`btn-secondary${!ttsHasPlayed ? " opacity-40 pointer-events-none" : ""}`}>Cancel</button>
               </div>
@@ -1149,6 +1207,12 @@ export default function VoiceHome() {
               <button onClick={resetFlow} className="btn-primary">New payment</button>
               <Link to="/app/rules" className="btn-secondary">Rules</Link>
               <Link to="/app/activity" className="btn-secondary">Activity</Link>
+            </div>
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/25">
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+              </svg>
+              Say "New payment", "Rules", "Activity", or "Dismiss"
             </div>
           </div>
         )}

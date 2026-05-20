@@ -15,7 +15,9 @@ Output ONLY valid JSON matching this schema — no markdown, no explanation:
 {
   "kind": "recurring" | "conditional" | "oneShot",
   "recipient": { "name": string, "hint": string },
-  "amount": number,
+  "amount": number | null,
+  "amountFiat": number | null,
+  "fiatCurrency": string | null,
   "token": "USDC" | "USDT" | "ETH" | "HTT",
   "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once" | "seconds" | "yearly", "value": string } | null,
   "condition": { "walletBelowUsdc": number, "topUpUsdc": number, "direction": "below" | "above" } | null,
@@ -46,22 +48,43 @@ Calculate from either an explicit count or from durationMinutes ÷ interval:
 TOKEN RULES
 ────────────────────────────────
 - "token" identifies which cryptocurrency/token the user wants to send:
-  - USDC (USD Coin) — DEFAULT if user says "dollars", "pesos", "money", or doesn't specify a token
+  - USDC (USD Coin) — DEFAULT if user says "money" or doesn't specify a token AND is not using fiat mode
   - USDT (Tether) — if user says "USDT" or "Tether"
   - ETH (Ether) — if user says "ETH", "Ether", or "Ethereum"
   - HTT (Hoodi Test Token) — if user says "HTT", "Hoodi", or "test token"
 
 ────────────────────────────────
-AMOUNT RULES
+AMOUNT RULES (TOKEN vs FIAT)
 ────────────────────────────────
-- "amount" is the numeric value of the specified token. It MUST be a positive number (> 0).
+There are TWO modes for specifying amounts:
+
+**MODE 1 — Token amount (direct):** The user specifies an amount of a specific token.
+- Set "amount" to the numeric value. Set "amountFiat" and "fiatCurrency" to null.
+- Examples: "send 0.5 ETH", "send 100 USDC", "padala 1 HTT"
+
+**MODE 2 — Fiat amount (conversion needed):** The user specifies an amount in a fiat currency "worth of" a token.
+- Set "amountFiat" to the fiat numeric value. Set "fiatCurrency" to the ISO currency code. Set "amount" to null.
+- The system will convert the fiat amount to token units using live prices.
+- Trigger phrases: "X pesos worth of", "X dollars worth of", "X PHP worth of", "X USD worth of",
+  "X euros worth of", "worth", "halaga ng", "katumbas ng"
+- Taglish: "piso", "pesos", "peso" → fiatCurrency="PHP"
+  "dolyar", "dollars", "dollar" → fiatCurrency="USD"
+  "euros", "euro" → fiatCurrency="EUR"
+  "pounds", "pound" → fiatCurrency="GBP"
+  "yen" → fiatCurrency="JPY"
+- IMPORTANT: When the user says "pesos" or "dollars" AND also names a specific token (USDT, ETH, HTT),
+  this is FIAT MODE. Example: "20 pesos worth of USDT" → amountFiat=20, fiatCurrency="PHP", token="USDT", amount=null
+- When the user says "pesos" or "dollars" WITHOUT naming a specific token, default to USDC as the token
+  and treat it as a direct token amount (since USDC ≈ $1): amount=X, token="USDC", amountFiat=null
+
+General amount parsing (applies to both modes):
 - Parse shorthand: "10k" or "10K" = 10000, "1.5k" = 1500, "500k" = 500000
 - Parse Tagalog numbers:
   - "sampung libo" = 10000, "dalawang libo" = 2000, "tatlong libo" = 3000
   - "limang daan" = 500, "isang libo" = 1000, "limang libo" = 5000
   - "dalawampung libo" = 20000, "tatlumpung libo" = 30000
 - Parse English words: "twenty thousand" = 20000, "five hundred" = 500
-- If amount is zero, negative, or missing, return: { "error": "Please specify the amount to send" }
+- If both amount and amountFiat are null/zero/missing, return: { "error": "Please specify the amount to send" }
 
 ────────────────────────────────
 RECIPIENT RULES
@@ -99,6 +122,12 @@ SCHEDULE & KIND RULES
 3. RECURRING MONTHLY: User wants to send every month on a specific day.
    → kind="recurring", schedule={ kind:"monthly", value:"<day>" }
    - value is the day of month as a string: "1", "15", "28"
+   - Ordinal words map to day numbers: "first"→"1", "second"→"2", "third"→"3", "fourth"→"4", "fifth"→"5", etc.
+   - "every 1st of the month" / "every first" → value="1"
+   - "every 2nd of the month" / "every second of the month" → value="2"
+   - "every 3rd" / "every third" → value="3"
+   - "every 15th" → value="15"
+   - IMPORTANT: "every second of the month" means the 2nd day, NOT every 1 second. The word "month" is the key indicator for monthly schedule.
    - For "end of month" / "last day" / "katapusan ng buwan" → value="last"
    - If no day specified, default to "1"
 
@@ -167,11 +196,18 @@ TAGLISH EXAMPLES
 ────────────────────────────────
 
 IMMEDIATE (oneShot):
-- "Padala 10k kay wife" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":10000,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
-- "Send mama 5000 now" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
-- "Transfer 0.5 ETH to John" → {"kind":"oneShot","recipient":{"name":"John","hint":""},"amount":0.5,"token":"ETH","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
-- "Pay Maria 200 dollars" → {"kind":"oneShot","recipient":{"name":"Maria","hint":""},"amount":200,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
-- "Padala kay ate ng limang daan" → {"kind":"oneShot","recipient":{"name":"Ate","hint":""},"amount":500,"token":"USDC","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Padala 10k kay wife" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":10000,"token":"USDC","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Send mama 5000 now" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Transfer 0.5 ETH to John" → {"kind":"oneShot","recipient":{"name":"John","hint":""},"amount":0.5,"token":"ETH","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Pay Maria 200 dollars" → {"kind":"oneShot","recipient":{"name":"Maria","hint":""},"amount":200,"token":"USDC","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Padala kay ate ng limang daan" → {"kind":"oneShot","recipient":{"name":"Ate","hint":""},"amount":500,"token":"USDC","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+
+FIAT CONVERSION (oneShot):
+- "Send wife 20 pesos worth of USDT now" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":null,"amountFiat":20,"fiatCurrency":"PHP","token":"USDT","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Padala 500 pesos worth of ETH kay mama" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":null,"amountFiat":500,"fiatCurrency":"PHP","token":"ETH","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Send 100 dollars worth of ETH to John" → {"kind":"oneShot","recipient":{"name":"John","hint":""},"amount":null,"amountFiat":100,"fiatCurrency":"USD","token":"ETH","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Transfer 50 USD worth of USDT to papa" → {"kind":"oneShot","recipient":{"name":"Papa","hint":""},"amount":null,"amountFiat":50,"fiatCurrency":"USD","token":"USDT","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Padala 1000 piso na halaga ng HTT kay ate" → {"kind":"oneShot","recipient":{"name":"Ate","hint":""},"amount":null,"amountFiat":1000,"fiatCurrency":"PHP","token":"HTT","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}
 
 FUTURE ONE-SHOT (once):
 - "Send mama 10k on June 15" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-06-15>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
@@ -292,6 +328,72 @@ export const parseIntent = internalAction({
       // Validate that a token was determined
       if (!parsed.error && !parsed.token) {
         parsed.error = "Could not determine which token to send. Please try again.";
+      }
+
+      // Fiat-to-token conversion: if GPT detected a fiat amount, fetch live price and convert
+      if (!parsed.error && parsed.amountFiat && parsed.fiatCurrency) {
+        if (parsed.token === "HTT") {
+          parsed.error = "HTT is a testnet token with no fiat value. Please specify the amount in HTT directly.";
+        } else {
+          const currency = parsed.fiatCurrency.toLowerCase();
+          const tokenToCgId: Record<string, string> = {
+            ETH: "ethereum",
+            USDC: "usd-coin",
+            USDT: "tether",
+          };
+          const cgId = tokenToCgId[parsed.token];
+          let rate = 0;
+
+          // Try CoinGecko first
+          try {
+            const cgUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=${currency}`;
+            const priceRes = await fetch(cgUrl);
+            if (priceRes.ok) {
+              const cgData = (await priceRes.json()) as Record<string, Record<string, number>>;
+              rate = cgData[cgId]?.[currency] ?? 0;
+            } else {
+              console.warn(`CoinGecko returned ${priceRes.status}`);
+            }
+          } catch (e) {
+            console.warn("CoinGecko fetch failed:", e);
+          }
+
+          // Fallback: for stablecoins (USDC/USDT), use a USD-based FX rate approach
+          if (rate === 0 && (parsed.token === "USDC" || parsed.token === "USDT")) {
+            try {
+              // Stablecoins are ~$1, so we just need the USD→fiat rate
+              // Try exchangerate.host (no key needed)
+              const fxRes = await fetch(`https://open.er-api.com/v6/latest/USD`);
+              if (fxRes.ok) {
+                const fxData = (await fxRes.json()) as { rates: Record<string, number> };
+                rate = fxData.rates?.[parsed.fiatCurrency] ?? 0;
+              }
+            } catch (e) {
+              console.warn("FX fallback failed:", e);
+            }
+          }
+
+          // Fallback: for ETH, try Binance-style approach (ETH→USDT price × USD→fiat rate)
+          if (rate === 0 && parsed.token === "ETH") {
+            try {
+              // Get ETH price in USD from CryptoCompare (no key needed for basic)
+              const ccRes = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=${parsed.fiatCurrency}`);
+              if (ccRes.ok) {
+                const ccData = (await ccRes.json()) as Record<string, number>;
+                rate = ccData[parsed.fiatCurrency] ?? 0;
+              }
+            } catch (e) {
+              console.warn("CryptoCompare fallback failed:", e);
+            }
+          }
+
+          if (rate > 0) {
+            parsed.amount = parsed.amountFiat / rate;
+            parsed.conversionRate = rate;
+          } else {
+            parsed.error = `Could not fetch ${parsed.fiatCurrency} price for ${parsed.token}. Please try again.`;
+          }
+        }
       }
 
       // If the model returned an error, pass it through

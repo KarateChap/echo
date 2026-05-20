@@ -8,7 +8,10 @@
       "Bash(npm create *)",
       "Bash(npm install *)",
       "Bash(npm run *)",
-      "Bash(npx convex *)"
+      "Bash(npx convex *)",
+      "WebFetch(domain:docs.transak.com)",
+      "WebFetch(domain:transak.com)",
+      "WebFetch(domain:api.transak.com)"
     ]
   }
 }

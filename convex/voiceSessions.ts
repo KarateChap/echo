@@ -129,30 +129,29 @@ export const setIntent = internalMutation({
           const s = parsed.schedule;
           if (s.kind === "monthly") {
             if (s.value === "last") {
-              scheduleLabel = "every month on the last day";
+              scheduleLabel = "every month, sa last day";
             } else {
-              const ord = ["1","21","31"].includes(s.value) ? "st" : ["2","22"].includes(s.value) ? "nd" : ["3","23"].includes(s.value) ? "rd" : "th";
-              scheduleLabel = `every month on the ${s.value}${ord}`;
+              scheduleLabel = `every month, tuwing ika-${s.value}`;
             }
           } else if (s.kind === "weekly") {
             scheduleLabel = `every ${s.value}`;
           } else if (s.kind === "daily") {
-            scheduleLabel = "every day";
+            scheduleLabel = "araw-araw";
           } else if (s.kind === "biweekly") {
             scheduleLabel = `every other ${s.value}`;
           } else if (s.kind === "once") {
             const d = new Date(s.value + "T00:00:00");
             if (!isNaN(d.getTime())) {
-              scheduleLabel = `on ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
+              scheduleLabel = `sa ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
             } else {
-              scheduleLabel = `on ${s.value}`;
+              scheduleLabel = `sa ${s.value}`;
             }
           } else if (s.kind === "seconds") {
             const n = parseInt(s.value);
             if (parsed.kind === "oneShot") {
               scheduleLabel = n >= 60
-                ? `after ${Math.round(n / 60)} minute${Math.round(n / 60) === 1 ? "" : "s"}`
-                : `after ${n} second${n === 1 ? "" : "s"}`;
+                ? `pagkatapos ng ${Math.round(n / 60)} minute${Math.round(n / 60) === 1 ? "" : "s"}`
+                : `pagkatapos ng ${n} second${n === 1 ? "" : "s"}`;
             } else {
               scheduleLabel = n === 1 ? "every second" : `every ${n} seconds`;
             }
@@ -160,7 +159,7 @@ export const setIntent = internalMutation({
             const [month, day] = s.value.split("-").map(Number);
             const date = new Date(2000, month - 1, day);
             const monthName = date.toLocaleDateString("en-US", { month: "long" });
-            scheduleLabel = `every year on ${monthName} ${day}`;
+            scheduleLabel = `every year, tuwing ${monthName} ${day}`;
           } else if (s.kind === "cron") {
             const parts = s.value.trim().split(/\s+/);
             if (parts.length === 5) {
@@ -176,32 +175,32 @@ export const setIntent = internalMutation({
                 const n = parseInt(hourStep[1]);
                 scheduleLabel = n === 1 ? "every hour" : `every ${n} hours`;
               } else {
-                scheduleLabel = "on the schedule you described";
+                scheduleLabel = "ayon sa schedule mo";
               }
             } else {
-              scheduleLabel = "on the schedule you described";
+              scheduleLabel = "ayon sa schedule mo";
             }
           } else {
-            scheduleLabel = "on the schedule you described";
+            scheduleLabel = "ayon sa schedule mo";
           }
         }
 
         // Append duration or occurrence info
         if (parsed.totalOccurrences) {
-          scheduleLabel += `, ${parsed.totalOccurrences} times`;
+          scheduleLabel += `, ${parsed.totalOccurrences} beses`;
         } else if (parsed.durationMinutes) {
           scheduleLabel += parsed.durationMinutes < 60
-            ? `, for the next ${parsed.durationMinutes} minutes`
-            : `, for the next ${Math.round(parsed.durationMinutes / 60)} hours`;
+            ? `, sa susunod na ${parsed.durationMinutes} minutes`
+            : `, sa susunod na ${Math.round(parsed.durationMinutes / 60)} hours`;
         }
 
         const kindLabel =
-          parsed.kind === "recurring" ? scheduleLabel || "on a recurring schedule"
-          : parsed.kind === "conditional" && parsed.condition?.direction === "above" ? `whenever ${name}'s wallet goes above ${parsed.condition.walletBelowUsdc} ${token}`
-          : parsed.kind === "conditional" ? `whenever ${name}'s wallet drops below ${parsed.condition?.walletBelowUsdc ?? "the threshold"} ${token}`
+          parsed.kind === "recurring" ? scheduleLabel || "sa recurring schedule"
+          : parsed.kind === "conditional" && parsed.condition?.direction === "above" ? `kapag tumaas ang wallet ni ${name} sa ${parsed.condition.walletBelowUsdc} ${token}`
+          : parsed.kind === "conditional" ? `kapag bumaba ang wallet ni ${name} sa ${parsed.condition?.walletBelowUsdc ?? "threshold"} ${token}`
           : scheduleLabel ? scheduleLabel
-          : "right away";
-        readbackText = `Got it. Sending ${amount} ${token} to ${name}, ${kindLabel}. Please confirm to proceed.`;
+          : "ngayon na";
+        readbackText = `Sige. Magpapadala ng ${amount} ${token} kay ${name}, ${kindLabel}. I-confirm mo lang para mag-proceed.`;
       }
     } catch {
       // If JSON parse fails, skip readback

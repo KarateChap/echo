@@ -243,8 +243,8 @@ http.route({
             },
             body: JSON.stringify({
               text,
-              model_id: "eleven_turbo_v2",
-              voice_settings: { stability: 0.3, similarity_boost: 0.85, style: 0.6, use_speaker_boost: true },
+              model_id: "eleven_multilingual_v2",
+              voice_settings: { stability: 0.4, similarity_boost: 0.9, style: 0.5, use_speaker_boost: true },
             }),
           },
         );
@@ -323,6 +323,134 @@ http.route({
       headers: {
         ...CORS_HEADERS,
         "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }),
+});
+
+// ── Token Prices + FX Rates ──────────────────────────────────────────────────
+const COINGECKO_URL =
+  "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,usd-coin&vs_currencies=usd,php,eur,gbp,jpy,sgd,krw,aud,cad,chf,cny,hkd,inr,idr,myr,nzd,thb,twd,vnd,aed,sar,brl,mxn,zar";
+
+const SUPPORTED_CURRENCIES = [
+  "PHP", "USD", "EUR", "GBP", "JPY", "SGD", "KRW",
+  "AUD", "CAD", "CHF", "CNY", "HKD", "INR", "IDR",
+  "MYR", "NZD", "THB", "TWD", "VND", "AED", "SAR",
+  "BRL", "MXN", "ZAR",
+];
+
+let priceCache: { data: unknown; ts: number } | null = null;
+const CACHE_TTL = 60_000; // 60 seconds
+
+http.route({
+  path: "/api/prices",
+  method: "GET",
+  handler: httpAction(async () => {
+    try {
+      // Return cached data if fresh
+      if (priceCache && Date.now() - priceCache.ts < CACHE_TTL) {
+        return new Response(JSON.stringify(priceCache.data), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      let eth: Record<string, number> = {};
+      let usdCoin: Record<string, number> = {};
+
+      // Try CoinGecko first
+      const res = await fetch(COINGECKO_URL);
+      if (res.ok) {
+        const json = (await res.json()) as Record<string, Record<string, number>>;
+        eth = json["ethereum"] ?? {};
+        usdCoin = json["usd-coin"] ?? {};
+      } else {
+        console.warn(`CoinGecko /api/prices returned ${res.status}, trying fallbacks`);
+      }
+
+      // Fallback: if CoinGecko failed, try CryptoCompare for ETH + FX rates for stablecoins
+      if (!eth.usd || !usdCoin.usd) {
+        try {
+          const ccCurrencies = SUPPORTED_CURRENCIES.join(",");
+          // ETH prices
+          const ethRes = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=${ccCurrencies}`);
+          if (ethRes.ok) {
+            const ethData = (await ethRes.json()) as Record<string, number>;
+            for (const c of SUPPORTED_CURRENCIES) eth[c.toLowerCase()] = ethData[c] ?? 0;
+          }
+          // Stablecoin prices ≈ USD FX rates
+          const fxRes = await fetch("https://open.er-api.com/v6/latest/USD");
+          if (fxRes.ok) {
+            const fxData = (await fxRes.json()) as { rates: Record<string, number> };
+            for (const c of SUPPORTED_CURRENCIES) {
+              usdCoin[c.toLowerCase()] = c === "USD" ? 1 : (fxData.rates?.[c] ?? 0);
+            }
+          }
+        } catch (e) {
+          console.warn("Fallback price fetch failed:", e);
+        }
+      }
+
+      // If still empty after all fallbacks, return stale cache or null
+      if (!eth.usd && !usdCoin.usd) {
+        if (priceCache) {
+          return new Response(JSON.stringify(priceCache.data), {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          });
+        }
+        return new Response(JSON.stringify({ prices: null, currencies: SUPPORTED_CURRENCIES }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+
+      // Build price map — USDT mirrors USDC (both stablecoins), HTT = 0
+      const zeroPrices: Record<string, number> = {};
+      for (const c of SUPPORTED_CURRENCIES) zeroPrices[c.toLowerCase()] = 0;
+
+      const result = {
+        prices: {
+          ETH: eth,
+          USDC: usdCoin,
+          USDT: usdCoin, // same as USDC (pegged stablecoin)
+          HTT: zeroPrices,
+        },
+        currencies: SUPPORTED_CURRENCIES,
+        updatedAt: Date.now(),
+      };
+
+      priceCache = { data: result, ts: Date.now() };
+
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+      });
+    } catch {
+      if (priceCache) {
+        return new Response(JSON.stringify(priceCache.data), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        });
+      }
+      return new Response(JSON.stringify({ prices: null, currencies: SUPPORTED_CURRENCIES }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+      });
+    }
+  }),
+});
+
+http.route({
+  path: "/api/prices",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...CORS_HEADERS,
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
     });
