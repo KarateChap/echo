@@ -12,6 +12,7 @@ interface PriceData {
 
 export interface PortfolioValue {
   total: Record<string, number>;
+  prices: Record<string, Record<string, number>> | null;
   currencies: string[];
   loading: boolean;
 }
@@ -71,6 +72,7 @@ export function usePortfolioValue(balances: TokenBalance[]): PortfolioValue {
 
   return {
     total,
+    prices: priceData?.prices ?? null,
     currencies: priceData?.currencies ?? [],
     loading,
   };

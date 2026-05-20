@@ -1,6 +1,7 @@
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { convertFiatToToken } from "./fiatConversion";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -398,67 +399,12 @@ export const parseIntent = internalAction({
 
       // Fiat-to-token conversion: if GPT detected a fiat amount, fetch live price and convert
       if (!parsed.error && parsed.amountFiat && parsed.fiatCurrency) {
-        if (parsed.token === "HTT") {
-          parsed.error = "HTT is a testnet token with no fiat value. Please specify the amount in HTT directly.";
+        const result = await convertFiatToToken(parsed.amountFiat, parsed.fiatCurrency, parsed.token);
+        if ("error" in result) {
+          parsed.error = result.error;
         } else {
-          const currency = parsed.fiatCurrency.toLowerCase();
-          const tokenToCgId: Record<string, string> = {
-            ETH: "ethereum",
-            USDC: "usd-coin",
-            USDT: "tether",
-          };
-          const cgId = tokenToCgId[parsed.token];
-          let rate = 0;
-
-          // Try CoinGecko first
-          try {
-            const cgUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=${currency}`;
-            const priceRes = await fetch(cgUrl);
-            if (priceRes.ok) {
-              const cgData = (await priceRes.json()) as Record<string, Record<string, number>>;
-              rate = cgData[cgId]?.[currency] ?? 0;
-            } else {
-              console.warn(`CoinGecko returned ${priceRes.status}`);
-            }
-          } catch (e) {
-            console.warn("CoinGecko fetch failed:", e);
-          }
-
-          // Fallback: for stablecoins (USDC/USDT), use a USD-based FX rate approach
-          if (rate === 0 && (parsed.token === "USDC" || parsed.token === "USDT")) {
-            try {
-              // Stablecoins are ~$1, so we just need the USD→fiat rate
-              // Try exchangerate.host (no key needed)
-              const fxRes = await fetch(`https://open.er-api.com/v6/latest/USD`);
-              if (fxRes.ok) {
-                const fxData = (await fxRes.json()) as { rates: Record<string, number> };
-                rate = fxData.rates?.[parsed.fiatCurrency] ?? 0;
-              }
-            } catch (e) {
-              console.warn("FX fallback failed:", e);
-            }
-          }
-
-          // Fallback: for ETH, try Binance-style approach (ETH→USDT price × USD→fiat rate)
-          if (rate === 0 && parsed.token === "ETH") {
-            try {
-              // Get ETH price in USD from CryptoCompare (no key needed for basic)
-              const ccRes = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=${parsed.fiatCurrency}`);
-              if (ccRes.ok) {
-                const ccData = (await ccRes.json()) as Record<string, number>;
-                rate = ccData[parsed.fiatCurrency] ?? 0;
-              }
-            } catch (e) {
-              console.warn("CryptoCompare fallback failed:", e);
-            }
-          }
-
-          if (rate > 0) {
-            parsed.amount = parsed.amountFiat / rate;
-            parsed.conversionRate = rate;
-          } else {
-            parsed.error = `Could not fetch ${parsed.fiatCurrency} price for ${parsed.token}. Please try again.`;
-          }
+          parsed.amount = result.amount;
+          parsed.conversionRate = result.conversionRate;
         }
       }
 

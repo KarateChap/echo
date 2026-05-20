@@ -1,6 +1,7 @@
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { convertFiatToToken } from "./fiatConversion";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -207,15 +208,17 @@ ${recipientsBlock}
 ────────────────────────────────
 RESPONSE FORMAT
 ────────────────────────────────
-Reply ONLY with valid JSON — no markdown, no explanation:
+Reply ONLY with valid JSON — no markdown, no explanation.
 
-For general questions/answers:
+There are exactly 3 response types:
+
+TYPE 1 — "answer" (questions, greetings, info requests):
 { "type": "answer", "text": "your response here" }
 
-For payment/send commands (ONLY when the user explicitly commands a transfer like "send", "padala", "transfer"):
+TYPE 2 — "payment_intent" (ANY message that describes sending/transferring money):
 {
   "type": "payment_intent",
-  "text": "confirmation readback",
+  "text": "A short, natural, conversational confirmation sentence in the user's language. This text will be spoken aloud via TTS, so it MUST sound like a human speaking — e.g. 'Sige, magpapadala ng 1 USDT kay Junjun.' NEVER include JSON keys, field names, technical terms like 'intent', 'type', 'kind', 'oneShot', 'amountFiat', 'fiatCurrency', 'schedule', 'condition', 'recipient', 'hint', or any code-like syntax. Just a friendly spoken confirmation.",
   "intent": {
     "kind": "recurring" | "conditional" | "oneShot",
     "recipient": { "name": string, "hint": string },
@@ -223,23 +226,64 @@ For payment/send commands (ONLY when the user explicitly commands a transfer lik
     "amountFiat": number | null,
     "fiatCurrency": string | null,
     "token": "USDC" | "USDT" | "ETH" | "HTT",
-    "schedule": { "kind": string, "value": string } | null,
+    "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once" | "seconds" | "yearly", "value": string } | null,
     "condition": { "walletBelowUsdc": number, "topUpUsdc": number, "direction": "below" | "above" } | null,
     "durationMinutes": number | null,
     "totalOccurrences": number | null
   }
 }
 
-For exit/goodbye:
+TYPE 3 — "exit" (user wants to leave chat):
 { "type": "exit", "text": "goodbye message" }
 
-IMPORTANT RULES:
-- ONLY return "payment_intent" when the user explicitly says to SEND/PADALA/TRANSFER money (or the equivalent command in their language, e.g. "送って" in Japanese, "보내" in Korean, "enviar" in Spanish). Questions about past payments are "answer" type.
-- When the user asks about balances, rules, transactions, or recipients, use the account data above to answer accurately.
-- If the user says "cancel", "exit", "nevermind", "go back" (or the equivalent in their language), return type "exit".
-- For payment intents, follow the same parsing rules as the main intent parser: require recipient + amount, default token to USDC if not specified.
-- Keep "text" responses concise for TTS — max 2-3 sentences.
-- ALWAYS respond in the same language the user is speaking. This is critical for TTS to sound natural.`;
+────────────────────────────────
+CRITICAL: WHEN TO USE "payment_intent"
+────────────────────────────────
+Return "payment_intent" IMMEDIATELY when the user's message contains a recipient AND an amount AND a send-like intent. Do NOT ask for confirmation first. Do NOT respond with "answer" and then wait for them to say yes. Go straight to "payment_intent".
+
+Send-like words in any language: send, padala, transfer, ipadala, magpadala, enviar, 送る, 보내다, 寄, envoyer, senden, etc.
+
+If the message has a recipient + amount, it is a payment command. Return "payment_intent" directly.
+
+Also: if in a PREVIOUS turn you responded with an "answer" that described a payment (e.g. "I'll send 1 USDT to Junjun"), and the user now says "yes", "okay", "sige", "go ahead", "confirm", "do it" — return "payment_intent" for that payment.
+
+────────────────────────────────
+EXAMPLES
+────────────────────────────────
+User: "send 1 USDT to Junjun"
+→ {"type":"payment_intent","text":"Sending 1 USDT to Junjun.","intent":{"kind":"oneShot","recipient":{"name":"Junjun","hint":""},"amount":1,"amountFiat":null,"fiatCurrency":null,"token":"USDT","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}}
+
+User: "padala 10k kay mama every month, 6 times"
+→ {"type":"payment_intent","text":"Magpapadala ng 10,000 USDC kay Mama, monthly, 6 beses.","intent":{"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"amountFiat":null,"fiatCurrency":null,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":6}}
+
+User: "send 0.1 USDT to junjun every 30 seconds within 1 minute"
+→ {"type":"payment_intent","text":"Sending 0.1 USDT to Junjun every 30 seconds for 1 minute.","intent":{"kind":"recurring","recipient":{"name":"Junjun","hint":""},"amount":0.1,"amountFiat":null,"fiatCurrency":null,"token":"USDT","schedule":{"kind":"seconds","value":"30"},"condition":null,"durationMinutes":1,"totalOccurrences":2}}
+
+User: "what's my balance?"
+→ {"type":"answer","text":"You have 0.5 ETH and 1,000 USDC."}
+
+User: "how much did I send to mama?"
+→ {"type":"answer","text":"You sent 5,000 USDC to Mama on May 1."}
+
+────────────────────────────────
+SCHEDULE RULES for payment_intent
+────────────────────────────────
+- schedule.kind MUST be one of: "monthly", "weekly", "daily", "biweekly", "cron", "once", "seconds", "yearly". No other values allowed.
+- "every N seconds" or sub-minute intervals → kind: "seconds", value: N as string (e.g. "30")
+- "every N minutes" → kind: "cron", value: cron expression (e.g. "*/5 * * * *")
+- "every day" → kind: "daily", value: "09:00"
+- "every week on Monday" → kind: "weekly", value: "Monday"
+- "every month on the 1st" → kind: "monthly", value: "1"
+- "once" or immediate → schedule: null (oneShot with no schedule)
+- For recurring rules, totalOccurrences is REQUIRED. Calculate from duration ÷ interval.
+- durationMinutes: set when user specifies duration (e.g. "within 1 minute" → 1)
+
+OTHER RULES:
+- When the user asks about balances, rules, transactions, or recipients → "answer" type using account data above.
+- "cancel", "exit", "nevermind", "go back" (any language) → "exit" type.
+- Default token to USDC if not specified. Default recipient hint to "".
+- Keep "text" concise (1-2 sentences) for TTS.
+- ALWAYS respond in the same language the user is speaking.`;
 }
 
 // ── Main chat action ─────────────────────────────────────────────────────────
@@ -334,6 +378,102 @@ export const chat = action({
     } catch {
       // If GPT didn't return valid JSON, wrap it as an answer
       parsed = { type: "answer", text: rawContent };
+    }
+
+    // ── Safety net: detect if GPT returned "answer" but user clearly wanted a payment ──
+    // GPT-4o-mini often fails to return payment_intent even with explicit instructions.
+    // If the response is "answer" but the user message or GPT's text looks like a payment,
+    // do a focused second call to extract a structured intent.
+    if (parsed.type !== "payment_intent") {
+      const lowerMsg = message.toLowerCase();
+      const lowerText = (parsed.text ?? "").toLowerCase();
+      const combined = lowerMsg + " " + lowerText;
+
+      const hasSendWord = /\b(send|padala|ipadala|magpadala|transfer|bayad|enviar|kirim|送|보내|envoyer|senden)\b/i.test(combined);
+      const hasConfirmWord = /\b(kumpirmasyon|confirmation|confirm|magpapadala|will send|i.ll send|sending|sige.*go|okay.*send|go ahead)\b/i.test(combined);
+      const hasAmount = /\d/.test(lowerMsg);
+      // Also check if user is confirming a previous payment description
+      const isConfirming = /^(yes|okay|sige|go ahead|oo|confirm|do it|sure|tama|let.s go|push through|send it|go|oo na|sige na)\b/i.test(lowerMsg.trim());
+      const prevAssistantMsg = messages.length >= 3 ? messages[messages.length - 3]?.content ?? "" : "";
+      const prevDescribedPayment = /\b(send|padala|magpadala|transfer|kirim)\b/i.test(prevAssistantMsg.toLowerCase()) && /\d/.test(prevAssistantMsg);
+
+      if ((hasSendWord && hasAmount) || (hasConfirmWord && hasAmount) || (isConfirming && prevDescribedPayment)) {
+        // User clearly wants to send money — do a focused intent extraction call
+        const intentPrompt = `Extract a payment intent from this conversation. The user wants to send crypto.
+Return ONLY valid JSON with this exact schema:
+{"kind":"recurring"|"conditional"|"oneShot","recipient":{"name":string,"hint":""},"amount":number|null,"amountFiat":number|null,"fiatCurrency":string|null,"token":"USDC"|"USDT"|"ETH"|"HTT","schedule":{"kind":"monthly"|"weekly"|"daily"|"biweekly"|"cron"|"once"|"seconds"|"yearly","value":string}|null,"condition":null,"durationMinutes":number|null,"totalOccurrences":number|null}
+
+Rules:
+- Default token to USDC if not specified.
+- "every N seconds" → schedule: {"kind":"seconds","value":"N"}
+- For recurring, totalOccurrences is required. Calculate from duration ÷ interval.
+- If immediate/one-time, set schedule to null and kind to "oneShot".
+- Return ONLY the JSON object, nothing else.`;
+
+        // Combine recent conversation for context
+        const recentContext = messages.slice(-6).map((m: any) => `${m.role}: ${m.content}`).join("\n");
+
+        const intentRes = await fetch(OPENAI_CHAT_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            temperature: 0,
+            max_tokens: 300,
+            messages: [
+              { role: "system", content: intentPrompt },
+              { role: "user", content: recentContext },
+            ],
+          }),
+        });
+
+        if (intentRes.ok) {
+          const intentJson = (await intentRes.json()) as {
+            choices: { message: { content: string } }[];
+          };
+          const intentRaw = intentJson.choices?.[0]?.message?.content ?? "";
+          try {
+            const intent = JSON.parse(intentRaw);
+            if (intent.recipient?.name && (intent.amount || intent.amountFiat)) {
+              // Successfully extracted intent — override to payment_intent
+              parsed = {
+                type: "payment_intent",
+                text: parsed.text, // keep the original confirmation text for TTS
+                intent,
+              };
+            }
+          } catch {
+            // Intent extraction failed, keep original answer
+          }
+        }
+      }
+    }
+
+    // Fiat-to-token conversion for payment intents (e.g., "20 pesos worth of USDT")
+    if (parsed.type === "payment_intent" && parsed.intent?.amountFiat && parsed.intent?.fiatCurrency) {
+      const token = parsed.intent.token ?? "USDC";
+      const result = await convertFiatToToken(parsed.intent.amountFiat, parsed.intent.fiatCurrency, token);
+      if ("error" in result) {
+        // Fall back to answer with the error
+        parsed = { type: "answer", text: result.error };
+      } else {
+        parsed.intent.amount = result.amount;
+        parsed.intent.conversionRate = result.conversionRate;
+      }
+    }
+
+    // Sanitize payment_intent text — if GPT included JSON-like terms, replace with a clean readback
+    if (parsed.type === "payment_intent" && parsed.intent) {
+      const jsonTerms = /\b(intent|oneShot|amountFiat|fiatCurrency|totalOccurrences|durationMinutes|"kind"|"type"|"hint"|"schedule"|"condition")\b/i;
+      if (jsonTerms.test(parsed.text) || parsed.text.includes("{") || parsed.text.includes("}")) {
+        const name = parsed.intent.recipient?.name ?? "recipient";
+        const amount = (parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?";
+        const tok = parsed.intent.token ?? "USDC";
+        parsed.text = `Sige, magpapadala ng ${amount} ${tok} kay ${name}. I-confirm mo lang.`;
+      }
     }
 
     // Add assistant response to messages

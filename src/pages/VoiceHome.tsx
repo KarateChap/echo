@@ -21,6 +21,7 @@ import { fundAgentWallet } from "@/lib/fundAgentWallet";
 import { useAutoStopDetection } from "@/lib/useAutoStopDetection";
 import { usePortfolioValue } from "@/lib/usePortfolioValue";
 import PortfolioValueDisplay from "@/components/PortfolioValueDisplay";
+import { useCurrency, formatFiatValue } from "@/lib/currencyConfig";
 import { useConversationListener } from "@/lib/useConversationListener";
 import { useVoiceEmail } from "@/lib/useVoiceEmail";
 import { useConversationAgent } from "@/lib/useConversationAgent";
@@ -98,6 +99,7 @@ export default function VoiceHome() {
     return map;
   }, [balances]);
   const portfolioValue = usePortfolioValue(balances);
+  const { currency } = useCurrency();
   const { unseenActivity, unseenRules } = useUnseenCounts();
   const addCustomToken = useMutation(api.customTokens.add);
   const removeCustomToken = useMutation(api.customTokens.remove);
@@ -505,6 +507,10 @@ export default function VoiceHome() {
       const intent = JSON.parse(session.intent);
       if (intent.error) return;
 
+      // Stop any playing TTS so the conversation listener isn't suppressed on the next step
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+      setTtsAudioEl(null);
+
       setCreatedRecipientName(intent.recipient?.name ?? "Unknown");
 
       // If we have a trusted recipient with email on file, skip the email step
@@ -690,8 +696,8 @@ export default function VoiceHome() {
         { keywords: ["try again", "retry", "no", "hindi", "ulit"], action: () => { voiceEmail.retry(); setRecipientEmail(""); } },
       ],
       "ask-voice-msg": [
-        { keywords: ["record", "sure", "sige", "okay"], action: () => handleRecordMessage() },
-        { keywords: ["skip", "pass", "wag na", "huwag"], action: () => handleFinalize() },
+        { keywords: ["skip", "pass", "wag na", "huwag", "no thanks", "no", "hindi"], action: () => handleFinalize() },
+        { keywords: ["record", "record message", "yes record"], action: () => handleRecordMessage() },
       ],
       error: [
         { keywords: ["try again", "retry", "ulit"], action: () => resetFlow() },
@@ -859,6 +865,14 @@ export default function VoiceHome() {
                     <div className="text-left">
                       <div className="text-xs font-semibold leading-tight">{token.symbol}</div>
                       <div className="text-[10px] tabular-nums text-white/40">{formatted}</div>
+                      {(() => {
+                        if (portfolioValue.loading || !portfolioValue.prices) return null;
+                        const rate = portfolioValue.prices[token.symbol]?.[currency.toLowerCase()];
+                        if (rate == null) return null;
+                        const amount = parseFloat(formatted.replace(/,/g, ""));
+                        if (isNaN(amount) || amount === 0) return null;
+                        return <div className="text-[9px] tabular-nums text-white/25">{formatFiatValue(amount * rate, currency)}</div>;
+                      })()}
                     </div>
                   </button>
                 );

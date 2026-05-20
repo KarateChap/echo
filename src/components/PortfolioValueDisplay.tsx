@@ -1,41 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-
-const CURRENCY_CONFIG: Record<string, { symbol: string; locale: string; label: string }> = {
-  PHP: { symbol: "₱", locale: "en-PH", label: "Philippine Peso" },
-  USD: { symbol: "$", locale: "en-US", label: "US Dollar" },
-  EUR: { symbol: "€", locale: "de-DE", label: "Euro" },
-  GBP: { symbol: "£", locale: "en-GB", label: "British Pound" },
-  JPY: { symbol: "¥", locale: "ja-JP", label: "Japanese Yen" },
-  SGD: { symbol: "S$", locale: "en-SG", label: "Singapore Dollar" },
-  KRW: { symbol: "₩", locale: "ko-KR", label: "Korean Won" },
-  AUD: { symbol: "A$", locale: "en-AU", label: "Australian Dollar" },
-  CAD: { symbol: "C$", locale: "en-CA", label: "Canadian Dollar" },
-  CHF: { symbol: "Fr", locale: "de-CH", label: "Swiss Franc" },
-  CNY: { symbol: "¥", locale: "zh-CN", label: "Chinese Yuan" },
-  HKD: { symbol: "HK$", locale: "en-HK", label: "Hong Kong Dollar" },
-  INR: { symbol: "₹", locale: "en-IN", label: "Indian Rupee" },
-  IDR: { symbol: "Rp", locale: "id-ID", label: "Indonesian Rupiah" },
-  MYR: { symbol: "RM", locale: "ms-MY", label: "Malaysian Ringgit" },
-  NZD: { symbol: "NZ$", locale: "en-NZ", label: "New Zealand Dollar" },
-  THB: { symbol: "฿", locale: "th-TH", label: "Thai Baht" },
-  TWD: { symbol: "NT$", locale: "zh-TW", label: "Taiwan Dollar" },
-  VND: { symbol: "₫", locale: "vi-VN", label: "Vietnamese Dong" },
-  AED: { symbol: "د.إ", locale: "ar-AE", label: "UAE Dirham" },
-  SAR: { symbol: "﷼", locale: "ar-SA", label: "Saudi Riyal" },
-  BRL: { symbol: "R$", locale: "pt-BR", label: "Brazilian Real" },
-  MXN: { symbol: "MX$", locale: "es-MX", label: "Mexican Peso" },
-  ZAR: { symbol: "R", locale: "en-ZA", label: "South African Rand" },
-};
-
-const STORAGE_KEY = "echo-portfolio-currency";
-
-function getSavedCurrency(): string {
-  try {
-    return localStorage.getItem(STORAGE_KEY) ?? "PHP";
-  } catch {
-    return "PHP";
-  }
-}
+import { CURRENCY_CONFIG, useCurrency, formatFiatValue } from "@/lib/currencyConfig";
 
 interface Props {
   total: Record<string, number>;
@@ -44,7 +8,7 @@ interface Props {
 }
 
 export default function PortfolioValueDisplay({ total, currencies, loading }: Props) {
-  const [currency, setCurrency] = useState(getSavedCurrency);
+  const { currency, setCurrency } = useCurrency();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -63,18 +27,10 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
   function select(c: string) {
     setCurrency(c);
     setOpen(false);
-    try { localStorage.setItem(STORAGE_KEY, c); } catch {}
   }
 
   const value = total[currency] ?? 0;
-  const config = CURRENCY_CONFIG[currency] ?? { symbol: currency, locale: "en-US", label: currency };
-
-  const formatted = new Intl.NumberFormat(config.locale, {
-    style: "currency",
-    currency,
-    minimumFractionDigits: currency === "JPY" || currency === "KRW" ? 0 : 2,
-    maximumFractionDigits: currency === "JPY" || currency === "KRW" ? 0 : 2,
-  }).format(value);
+  const formatted = formatFiatValue(value, currency);
 
   return (
     <div className="flex flex-col items-center gap-0.5">
@@ -126,12 +82,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
               if (!cfg) return null;
               const isActive = c === currency;
               const cValue = total[c] ?? 0;
-              const cFormatted = new Intl.NumberFormat(cfg.locale, {
-                style: "currency",
-                currency: c,
-                minimumFractionDigits: c === "JPY" || c === "KRW" ? 0 : 2,
-                maximumFractionDigits: c === "JPY" || c === "KRW" ? 0 : 2,
-              }).format(cValue);
+              const cFormatted = formatFiatValue(cValue, c);
 
               return (
                 <button
