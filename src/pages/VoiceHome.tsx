@@ -347,6 +347,7 @@ export default function VoiceHome() {
       setTtsAudioEl(null);
     }, []),
     forceSpeakerRoute: iosSession.forceSpeakerRoute,
+    blessedAudio: iosSession.blessedAudio,
   });
 
   // Keep chatAgent reset ref in sync
@@ -402,6 +403,7 @@ export default function VoiceHome() {
       audioRef.current = null;
     },
     forceSpeakerRoute: iosSession.forceSpeakerRoute,
+    blessedAudio: iosSession.blessedAudio,
   });
 
   // Primary: fetch streaming ElevenLabs TTS as soon as readbackText is available
@@ -440,19 +442,21 @@ export default function VoiceHome() {
     if (audioRef.current && audioRef.current.currentTime > 0) return;
     hasPlayedFallbackRef.current = url;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
-    const audio = new Audio(url);
+    // On iOS, reuse the blessed audio element to bypass autoplay restrictions
+    const audio = iosSession.blessedAudio ?? new Audio(url);
+    if (iosSession.blessedAudio) audio.src = url;
     audio.crossOrigin = "anonymous";
     audio.setAttribute("playsinline", "");
     audioRef.current = audio;
     setTtsAudioEl(audio);
-    audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
-    audio.addEventListener("pause", () => { setTtsAudioEl(null); setTtsHasPlayed(true); });
+    audio.addEventListener("ended", () => { setTtsAudioEl(null); setTtsHasPlayed(true); }, { once: true });
+    audio.addEventListener("error", () => { setTtsAudioEl(null); setTtsHasPlayed(true); }, { once: true });
     // Force speaker routing on iOS before playing
     (async () => {
       await iosSession.forceSpeakerRoute();
       audio.play().catch(() => { setTtsHasPlayed(true); });
     })();
-  }, [session?.readbackUrl, iosSession.forceSpeakerRoute]);
+  }, [session?.readbackUrl, iosSession.forceSpeakerRoute, iosSession.blessedAudio]);
 
   // Safety: unlock Approve button after 5s if TTS silently failed
   useEffect(() => {
@@ -890,10 +894,10 @@ export default function VoiceHome() {
   }, [draggedTokenInfo, balances]);
 
   return (
-    <div className="mx-auto flex min-h-full max-w-md flex-col px-4 py-6">
-      <header className="flex items-center justify-between">
+    <div className="mx-auto flex min-h-full max-w-md flex-col px-4 py-8">
+      <header className="flex items-center justify-between gap-3 pb-1">
         <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Echo</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {/* Voice gender segmented toggle */}
           <div
             className="relative flex items-center rounded-full p-0.5"
@@ -926,7 +930,7 @@ export default function VoiceHome() {
 
       <FxRateTicker prices={portfolioValue.prices} loading={portfolioValue.loading} />
 
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 pt-6">
+      <main className="flex flex-1 flex-col items-center justify-center gap-5 pt-4">
 
         {/* === ORB + TOKENS: shown during idle, recording, processing, and chat === */}
         {(step === "idle" || step === "recording" || step === "processing" || isChatMode) && (
@@ -1602,7 +1606,7 @@ export default function VoiceHome() {
       </main>
 
       {step === "idle" && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
+        <div className="flex shrink-0 flex-col items-center justify-center gap-2.5 pt-4 pb-2">
           <button
             onClick={() => setShowWithdraw(true)}
             className="btn-secondary text-xs px-4 py-1.5"
@@ -1657,7 +1661,7 @@ export default function VoiceHome() {
         }}
       />
 
-      <footer className="space-y-2">
+      <footer className="space-y-3 pt-3" style={{ borderTop: "1px solid rgba(140, 160, 255, 0.06)" }}>
         <div className="flex items-center gap-2 text-[10px] text-white/40">
           <button
             onClick={() => {
@@ -1697,7 +1701,7 @@ export default function VoiceHome() {
           </button>
         </div>
         <nav className="flex w-full justify-center gap-3">
-          <Link to="/app/rules" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5">
+          <Link to="/app/rules" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5 py-2.5 rounded-xl">
             Rules
             {unseenRules > 0 && (
               <span className="glass-unseen-badge">
@@ -1705,7 +1709,7 @@ export default function VoiceHome() {
               </span>
             )}
           </Link>
-          <Link to="/app/activity" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5">
+          <Link to="/app/activity" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5 py-2.5 rounded-xl">
             Activity
             {unseenActivity > 0 && (
               <span className="glass-unseen-badge">
@@ -1713,7 +1717,7 @@ export default function VoiceHome() {
               </span>
             )}
           </Link>
-          <Link to="/app/recipients" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5">
+          <Link to="/app/recipients" className="glass-nav inline-flex flex-1 items-center justify-center gap-1.5 py-2.5 rounded-xl">
             Recipients
           </Link>
         </nav>

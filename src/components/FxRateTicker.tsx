@@ -88,7 +88,7 @@ export default function FxRateTicker({ prices, loading }: Props) {
 
   if (loading) {
     return (
-      <div className="mt-3 -mx-4 py-2">
+      <div className="mt-4 -mx-4 py-2">
         <div className="mx-4 h-6 animate-pulse rounded-full bg-white/[0.04]" />
       </div>
     );
@@ -100,7 +100,7 @@ export default function FxRateTicker({ prices, loading }: Props) {
 
   return (
     <div
-      className="ticker-mask mt-3 -mx-4 overflow-hidden"
+      className="ticker-mask mt-4 -mx-4 overflow-hidden"
       style={{
         borderTop: "1px solid rgba(140, 160, 255, 0.06)",
         borderBottom: "1px solid rgba(140, 160, 255, 0.06)",

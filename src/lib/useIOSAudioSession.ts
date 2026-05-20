@@ -14,6 +14,12 @@ interface IOSAudioSession {
   isReady: boolean;
   /** Call before any audio playback to force speaker routing (plays silent buffer ~100ms) */
   forceSpeakerRoute: () => Promise<void>;
+  /**
+   * Pre-blessed Audio element created and .play()-ed during a user gesture.
+   * Reuse this for all TTS playback on iOS — new Audio() elements created
+   * outside a gesture handler will be blocked by iOS autoplay policy.
+   */
+  blessedAudio: HTMLAudioElement | null;
 }
 
 /**
@@ -28,6 +34,8 @@ interface IOSAudioSession {
 export function useIOSAudioSession(): IOSAudioSession {
   const [persistentStream, setPersistentStream] = useState<MediaStream | null>(null);
   const [isReady, setIsReady] = useState(!isIOS); // non-iOS is always "ready"
+  const [blessedAudio, setBlessedAudio] = useState<HTMLAudioElement | null>(null);
+  const blessedAudioRef = useRef<HTMLAudioElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const initializingRef = useRef(false);
@@ -69,15 +77,26 @@ export function useIOSAudioSession(): IOSAudioSession {
       source.connect(ctx.destination);
       source.start();
 
-      // 3. Unlock autoplay by playing a silent Audio element within this gesture
-      const silentAudio = new Audio();
-      silentAudio.setAttribute("playsinline", "");
-      // Minimal valid silent MP3 frame
-      silentAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwBHAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwBHAAAAAAAAAAAAAAAAAAAA";
-      try {
-        await silentAudio.play();
-      } catch {
-        // Autoplay unlock failed — will retry on next gesture
+      // 3. Create and bless a shared Audio element within this user gesture.
+      // iOS Safari only allows audio.play() on elements that were first played
+      // during a user gesture. By blessing one element now, we can reuse it for
+      // all future TTS playback without needing another gesture.
+      if (!blessedAudioRef.current) {
+        const audio = new Audio();
+        audio.setAttribute("playsinline", "");
+        // Use a tiny silent MP3 to trigger the first play within the gesture
+        audio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwBHAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwBHAAAAAAAAAAAAAAAAAAAA";
+        try {
+          await audio.play();
+        } catch {
+          // Autoplay unlock failed — will retry on next gesture
+        }
+        // Pause and reset — the element is now "blessed" for future .play() calls
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+        blessedAudioRef.current = audio;
+        setBlessedAudio(audio);
       }
 
       setIsReady(true);
@@ -169,5 +188,5 @@ export function useIOSAudioSession(): IOSAudioSession {
     }
   }, []);
 
-  return { persistentStream, isReady, forceSpeakerRoute };
+  return { persistentStream, isReady, forceSpeakerRoute, blessedAudio };
 }

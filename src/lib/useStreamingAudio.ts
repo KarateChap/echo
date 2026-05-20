@@ -19,6 +19,11 @@ interface StreamingAudioOptions {
   onEnd?: () => void;
   /** Call before audio.play() on iOS to force speaker routing */
   forceSpeakerRoute?: () => Promise<void>;
+  /**
+   * Pre-blessed Audio element from useIOSAudioSession.
+   * On iOS, reuse this instead of creating new Audio() which iOS blocks.
+   */
+  blessedAudio?: HTMLAudioElement | null;
 }
 
 interface StreamingAudioControls {
@@ -30,14 +35,17 @@ export function useStreamingAudio({
   onStart,
   onEnd,
   forceSpeakerRoute,
+  blessedAudio,
 }: StreamingAudioOptions = {}): StreamingAudioControls {
   // Use refs for callbacks so returned functions stay stable across renders
   const onStartRef = useRef(onStart);
   const onEndRef = useRef(onEnd);
   const forceSpeakerRef = useRef(forceSpeakerRoute);
+  const blessedAudioRef = useRef(blessedAudio);
   onStartRef.current = onStart;
   onEndRef.current = onEnd;
   forceSpeakerRef.current = forceSpeakerRoute;
+  blessedAudioRef.current = blessedAudio;
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -47,7 +55,10 @@ export function useStreamingAudio({
       audioRef.current.pause();
       audioRef.current.removeAttribute("src");
       audioRef.current.load();
-      audioRef.current = null;
+      // Don't null out the blessed audio — it's owned by useIOSAudioSession and reused
+      if (audioRef.current !== blessedAudioRef.current) {
+        audioRef.current = null;
+      }
     }
   }, []);
 
@@ -73,8 +84,10 @@ export function useStreamingAudio({
         // No stream — fall back to full blob
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
-        const audio = new Audio(blobUrl);
+        // On iOS, reuse the blessed audio element; otherwise create new
+        const audio = blessedAudioRef.current ?? new Audio();
         audio.setAttribute("playsinline", "");
+        audio.src = blobUrl;
         audioRef.current = audio;
         onStartRef.current?.(audio);
 
@@ -94,7 +107,7 @@ export function useStreamingAudio({
       if (supportsMediaSource) {
         await playMediaSource(response, ac, audioRef, onStartRef, onEndRef, cleanup, forceSpeakerRef);
       } else {
-        await playFallback(response, ac, audioRef, onStartRef, onEndRef, cleanup, forceSpeakerRef);
+        await playFallback(response, ac, audioRef, onStartRef, onEndRef, cleanup, forceSpeakerRef, blessedAudioRef);
       }
     },
     [cleanup],
@@ -213,12 +226,14 @@ async function playFallback(
   onEndRef: React.MutableRefObject<(() => void) | undefined>,
   cleanup: () => void,
   forceSpeakerRef: React.MutableRefObject<(() => Promise<void>) | undefined>,
+  blessedAudioRef: React.MutableRefObject<HTMLAudioElement | null | undefined>,
 ) {
   const reader = response.body!.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   let started = false;
-  const audio = new Audio();
+  // On iOS, reuse the blessed audio element to bypass autoplay restrictions
+  const audio = blessedAudioRef.current ?? new Audio();
   audio.setAttribute("playsinline", "");
   audioRef.current = audio;
   let blobUrl = "";
