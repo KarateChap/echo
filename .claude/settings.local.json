@@ -11,7 +11,8 @@
       "Bash(npx convex *)",
       "WebFetch(domain:docs.transak.com)",
       "WebFetch(domain:transak.com)",
-      "WebFetch(domain:api.transak.com)"
+      "WebFetch(domain:api.transak.com)",
+      "Bash(git push:*)"
     ]
   }
 }

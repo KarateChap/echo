@@ -108,7 +108,22 @@ export default function Landing() {
             style={{ background: "radial-gradient(circle, #6366f1 0%, #a855f7 50%, transparent 70%)" }}
           />
 
-          <div className="glass-card space-y-7 px-5 py-8 sm:px-8 text-center">
+          <div className="glass-card relative space-y-7 px-5 py-8 sm:px-8 text-center">
+            {/* Desktop browser pill badge */}
+            <div className="flex justify-center">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1 text-[10px] font-medium uppercase tracking-widest text-white/50"
+                style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15))" }}
+              >
+                <svg className="h-3 w-3 text-primary/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+                Built for Desktop Browser
+              </span>
+            </div>
+
             {/* Echo icon */}
             <img src="/echo-icon.png" alt="Echo" className="mx-auto h-20" style={{ filter: "drop-shadow(0 0 8px rgba(99, 102, 241, 0.4))" }} />
 
@@ -225,36 +240,23 @@ export default function Landing() {
               </div>
             </div>
 
-            {/* Built for desktop browser badge */}
-            <div className="flex items-center justify-center gap-2 text-[11px] text-white/30">
-              <svg className="h-3.5 w-3.5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-              <span>Built for desktop browser</span>
-            </div>
-
-            {/* Mobile app coming soon */}
-            <div className="flex items-center justify-center gap-2.5">
-              {/* App Store badge */}
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 backdrop-blur-sm">
-                <svg className="h-5 w-5 shrink-0 text-white/50" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
-                </svg>
-                <div className="text-left leading-tight">
-                  <span className="block text-[9px] tracking-wide text-white/35">App Store</span>
-                  <span className="block text-[11px] font-semibold text-white/55">Coming Soon</span>
+            {/* Mobile apps — Phase 2 */}
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-widest text-white/25">Mobile apps coming soon in Phase 2</p>
+              <div className="flex items-center justify-center gap-2.5">
+                {/* App Store badge */}
+                <div className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 opacity-50">
+                  <svg className="h-4 w-4 shrink-0 text-white/40" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
+                  </svg>
+                  <span className="text-[11px] font-medium text-white/40">App Store</span>
                 </div>
-              </div>
-              {/* Google Play badge */}
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 backdrop-blur-sm">
-                <svg className="h-5 w-5 shrink-0 text-white/50" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M3.61 1.81L13.42 12 3.61 22.19a1.06 1.06 0 0 1-.11-.49V2.3c0-.17.04-.34.11-.49zM14.27 12.85l-2.39 2.4L5.3 19.3l8.14-8.14 .83 1.69zM14.27 11.15L5.3 4.7l6.58 4.05 2.39 2.4zm5.49 1.42c.37.22.58.6.58 1.01 0 .41-.21.79-.58 1.01l-2.63 1.53-2.66-2.54 2.66-2.54 2.63 1.53z" />
-                </svg>
-                <div className="text-left leading-tight">
-                  <span className="block text-[9px] tracking-wide text-white/35">Google Play</span>
-                  <span className="block text-[11px] font-semibold text-white/55">Coming Soon</span>
+                {/* Google Play badge */}
+                <div className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 opacity-50">
+                  <svg className="h-4 w-4 shrink-0 text-white/40" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3.18 1.52a1.16 1.16 0 0 0-.43.93v19.1c0 .37.16.72.43.93l.05.03L13.58 12 3.23 1.49l-.05.03zM17.55 15.95l-3.97-3.95 3.97-3.95 .04.02 4.71 2.68c1.34.76 1.34 2.01 0 2.78l-4.71 2.68-.04-.26zM14.14 12.56l-4.32 4.32L4.2 22.2c.44.25.98.22 1.4-.06l12.51-7.1-3.97-2.48zM14.14 11.44L17.55 8.96 5.6 1.86c-.42-.28-.96-.31-1.4-.06l5.62 5.32 4.32 4.32z" />
+                  </svg>
+                  <span className="text-[11px] font-medium text-white/40">Google Play</span>
                 </div>
               </div>
             </div>
