@@ -557,14 +557,17 @@ export default function VoiceHome() {
       return;
     }
 
-    // If Web Speech API failed to produce a transcript but we have audio,
-    // fall back to Whisper transcription via the backend.
-    // On mobile, peakLevel is always 0, so gate on blob size only (lower
-    // threshold because mobile codecs like AAC produce smaller files).
+    // Use Whisper backend for transcription when appropriate.
+    // On iOS, ALWAYS prefer Whisper — Safari's Web Speech API is unreliable
+    // for Taglish and produces lower quality transcripts than Whisper.
+    // On other platforms, only fall back to Whisper if Speech API failed.
     const whisperEligible = isMobile
       ? blob != null && blob.size > 4000
       : peakLevel >= SPEECH_THRESHOLD && blob != null && blob.size > 8000;
-    if ((!transcript || transcript.trim().length < 2) && whisperEligible && blob) {
+    const needsWhisper = isIOS
+      ? whisperEligible && blob  // iOS: always use Whisper for better accuracy
+      : (!transcript || transcript.trim().length < 2) && whisperEligible && blob;  // Others: only if Speech API failed
+    if (needsWhisper && blob) {
       try {
         setStep("chat-processing");
         const uploadUrl = await generateUploadUrl();
@@ -587,7 +590,7 @@ export default function VoiceHome() {
           }
         }
       } catch {
-        // Fallback transcription failed — restart listening
+        // Whisper transcription failed — fall through to use Speech API transcript if available
       }
     }
 
@@ -896,7 +899,7 @@ export default function VoiceHome() {
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col px-4 py-8">
       <header className="flex items-center justify-between gap-3 pb-1">
-        <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Echo</h1>
+        <img src="/echo-icon.png" alt="Echo" className="h-11" style={{ filter: "drop-shadow(0 0 6px rgba(99, 102, 241, 0.4))" }} />
         <div className="flex items-center gap-3">
           {/* Voice gender segmented toggle */}
           <div

@@ -129,12 +129,11 @@ export default function Landing() {
           />
 
           <div className="glass-card space-y-7 px-5 py-8 sm:px-8 text-center">
-            {/* Animated sound-wave logo */}
-            <SoundWaveLogo />
+            {/* Echo icon */}
+            <img src="/echo-icon.png" alt="Echo" className="mx-auto h-20" style={{ filter: "drop-shadow(0 0 8px rgba(99, 102, 241, 0.4))" }} />
 
             {/* Branding */}
             <div className="space-y-2">
-              <h1 className="text-5xl font-extrabold tracking-tight">Echo</h1>
               <p className="text-balance text-[15px] leading-relaxed text-white/50">
                 Voice-first remittance. Send love home&thinsp;&mdash;&thinsp;not just money.
               </p>
