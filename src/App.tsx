@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { usePrivy, useWallets, useCreateWallet } from "@privy-io/react-auth";
 import { useMutation, useQuery } from "convex/react";
@@ -13,6 +13,41 @@ import TransactionNotifier from "@/components/TransactionNotifier";
 import ParticleWaveBackground from "@/components/ParticleWaveBackground";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { AudioLevelProvider } from "@/lib/AudioLevelContext";
+
+function DesktopDisclaimer() {
+  const [open, setOpen] = useState(() => {
+    return !sessionStorage.getItem("echo_desktop_disclaimer_seen");
+  });
+
+  if (!open) return null;
+
+  const dismiss = () => {
+    sessionStorage.setItem("echo_desktop_disclaimer_seen", "1");
+    setOpen(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="glass-card mx-4 max-w-sm space-y-4 p-6 text-center">
+        <div className="text-3xl">🖥️</div>
+        <h2 className="text-lg font-semibold text-white">
+          Optimized for Desktop
+        </h2>
+        <p className="text-sm leading-relaxed text-white/70">
+          Echo is currently optimized for <span className="text-white font-medium">desktop browsers</span>.
+          Mobile browser support is still in progress and may not work as expected.
+          For the best experience, please use a desktop browser.
+        </p>
+        <button
+          onClick={dismiss}
+          className="mt-2 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-500"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { ready, authenticated, user } = usePrivy();
@@ -69,6 +104,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     <ErrorBoundary>
       <AudioLevelProvider>
         <ParticleWaveBackground />
+        <DesktopDisclaimer />
         <div className="relative z-10 h-full">
           <TransactionNotifier />
           {children}
