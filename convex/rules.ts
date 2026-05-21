@@ -341,15 +341,20 @@ export const resume = mutation({
       const intervalMs = parseInt(rule.schedule.value) * 1000;
       await ctx.scheduler.runAfter(intervalMs, internal.scheduler.executeSecondsRule, {
         ruleId,
+        attempt: (rule.executionCount ?? 0) + 1,
       });
     }
   },
 });
 
 export const incrementExecutionCount = internalMutation({
-  args: { ruleId: v.id("rules"), newCount: v.number() },
-  handler: async (ctx, { ruleId, newCount }) => {
+  args: { ruleId: v.id("rules") },
+  handler: async (ctx, { ruleId }) => {
+    const rule = await ctx.db.get(ruleId);
+    if (!rule) return 0;
+    const newCount = (rule.executionCount ?? 0) + 1;
     await ctx.db.patch(ruleId, { executionCount: newCount });
+    return newCount;
   },
 });
 
@@ -361,9 +366,11 @@ export const armCondition = internalMutation({
 });
 
 export const markCompleted = internalMutation({
-  args: { ruleId: v.id("rules") },
-  handler: async (ctx, { ruleId }) => {
-    await ctx.db.patch(ruleId, { status: "completed" });
+  args: { ruleId: v.id("rules"), executionCount: v.optional(v.number()) },
+  handler: async (ctx, { ruleId, executionCount }) => {
+    const patch: { status: "completed"; executionCount?: number } = { status: "completed" };
+    if (executionCount !== undefined) patch.executionCount = executionCount;
+    await ctx.db.patch(ruleId, patch);
   },
 });
 
@@ -408,18 +415,15 @@ export const advanceNextRun = internalMutation({
       nextRunAt = Date.now() + 24 * 60 * 60 * 1000;
     }
 
-    const newCount = (rule.executionCount ?? 0) + 1;
-
-    // If next run is past expiration or occurrence limit reached, mark completed
-    if (
-      (rule.expiresAt && nextRunAt > rule.expiresAt) ||
-      (rule.totalOccurrences && newCount >= rule.totalOccurrences)
-    ) {
-      await ctx.db.patch(ruleId, { status: "completed", executionCount: newCount });
+    // If next run is past expiration, mark completed and stop advancing
+    if (rule.expiresAt && nextRunAt > rule.expiresAt) {
+      await ctx.db.patch(ruleId, { status: "completed" });
       return;
     }
 
-    await ctx.db.patch(ruleId, { nextRunAt, executionCount: newCount });
+    // Advance schedule only — executionCount is incremented by executePayment
+    // after confirmed on-chain success, to avoid counting failed attempts.
+    await ctx.db.patch(ruleId, { nextRunAt });
   },
 });
 

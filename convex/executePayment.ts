@@ -33,8 +33,9 @@ export const executePayment = internalAction({
       return;
     }
 
-    // Guard: don't execute if already completed or cancelled
-    if (rule.status === "completed" || rule.status === "cancelled") {
+    // Guard: don't execute if cancelled (but allow "completed" — the last scheduled
+    // payment may arrive after the scheduler already marked the rule completed)
+    if (rule.status === "cancelled") {
       return;
     }
 
@@ -232,6 +233,15 @@ export const executePayment = internalAction({
         await ctx.runMutation(internal.rules.markCompleted, { ruleId });
       }
 
+      // For recurring/conditional rules, increment count after confirmed success
+      // and mark completed when all occurrences are reached
+      if (rule.kind === "recurring" || rule.kind === "conditional") {
+        const newCount = await ctx.runMutation(internal.rules.incrementExecutionCount, { ruleId });
+        if (rule.totalOccurrences && newCount >= rule.totalOccurrences) {
+          await ctx.runMutation(internal.rules.markCompleted, { ruleId });
+        }
+      }
+
     } catch (e) {
       const rawError = e instanceof Error ? e.message : String(e);
 
@@ -256,6 +266,9 @@ export const executePayment = internalAction({
       if (rule.kind === "oneShot") {
         await ctx.runMutation(internal.rules.markCancelled, { ruleId });
       }
+
+      // For recurring rules: do NOT increment executionCount on failure.
+      // The scheduled attempts will continue and retry.
     }
   },
 });

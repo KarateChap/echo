@@ -52,38 +52,40 @@ export const tickScheduledRules = internalAction({
 });
 
 export const executeSecondsRule = internalAction({
-  args: { ruleId: v.id("rules") },
-  handler: async (ctx, { ruleId }) => {
+  args: { ruleId: v.id("rules"), attempt: v.optional(v.number()) },
+  handler: async (ctx, { ruleId, attempt: attemptArg }) => {
     const rule = await ctx.runQuery(internal.rules.getInternal, { ruleId });
     if (!rule || rule.status !== "active") return;
 
-    // Check if expired
-    if (rule.expiresAt && Date.now() > rule.expiresAt) {
-      await ctx.runMutation(internal.rules.markCompleted, { ruleId });
-      return;
-    }
+    const attempt = attemptArg ?? 1;
 
-    // Check occurrence limit
+    // Safety net: if all occurrences already succeeded, mark done
     const currentCount = rule.executionCount ?? 0;
     if (rule.totalOccurrences && currentCount >= rule.totalOccurrences) {
       await ctx.runMutation(internal.rules.markCompleted, { ruleId });
       return;
     }
 
-    // Fire payment
-    await ctx.scheduler.runAfter(0, internal.executePayment.executePayment, { ruleId });
-
-    // Increment execution count
-    const newCount = currentCount + 1;
-    if (rule.totalOccurrences && newCount >= rule.totalOccurrences) {
+    // Check if expired — but only for unbounded rules. When totalOccurrences is
+    // set the occurrence limit is the precise stopping mechanism; expiresAt is
+    // just a safety net and scheduling jitter can cause the last attempt to land
+    // a few ms after expiresAt, prematurely killing the final payment.
+    if (rule.expiresAt && Date.now() > rule.expiresAt && !rule.totalOccurrences) {
       await ctx.runMutation(internal.rules.markCompleted, { ruleId });
       return;
     }
-    await ctx.runMutation(internal.rules.incrementExecutionCount, { ruleId, newCount });
 
-    // Self-schedule next execution
-    const intervalSeconds = parseInt(rule.schedule?.value ?? "5");
-    await ctx.scheduler.runAfter(intervalSeconds * 1000, internal.scheduler.executeSecondsRule, { ruleId });
+    // Fire payment — executionCount is incremented by executePayment on success
+    await ctx.scheduler.runAfter(0, internal.executePayment.executePayment, { ruleId });
+
+    // Self-schedule next attempt only if more remain
+    if (!rule.totalOccurrences || attempt < rule.totalOccurrences) {
+      const intervalSeconds = parseInt(rule.schedule?.value ?? "5");
+      await ctx.scheduler.runAfter(intervalSeconds * 1000, internal.scheduler.executeSecondsRule, {
+        ruleId,
+        attempt: attempt + 1,
+      });
+    }
   },
 });
 
@@ -178,20 +180,11 @@ export const tickConditionalRules = internalAction({
 
         // Only fire if balance is below threshold
         if (conditionMet) {
+          // Fire payment — executePayment increments executionCount on success
+          // and marks completed when all occurrences are reached
           await ctx.scheduler.runAfter(0, internal.executePayment.executePayment, {
             ruleId: rule._id,
           });
-
-          // Increment execution count
-          const newCount = (rule.executionCount ?? 0) + 1;
-          if (rule.totalOccurrences && newCount >= rule.totalOccurrences) {
-            await ctx.runMutation(internal.rules.markCompleted, { ruleId: rule._id });
-          } else {
-            await ctx.runMutation(internal.rules.incrementExecutionCount, {
-              ruleId: rule._id,
-              newCount,
-            });
-          }
         }
       } catch (e) {
         console.error(
