@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -11,10 +11,13 @@ export function useUnseenCounts() {
     user ? { privyId: user.id } : "skip",
   );
 
-  const txs = useQuery(
-    api.transactions.listByUser,
-    user ? { privyId: user.id } : "skip",
-  );
+  const lastSeenActivity = dbUser?.lastSeenActivity ?? 0;
+  const lastSeenRules = dbUser?.lastSeenRules ?? 0;
+
+  const unseenActivity = useQuery(
+    api.transactions.countUnseenByUser,
+    user ? { privyId: user.id, since: lastSeenActivity } : "skip",
+  ) ?? 0;
 
   const rules = useQuery(
     api.rules.listByUser,
@@ -23,17 +26,9 @@ export function useUnseenCounts() {
 
   const markSeen = useMutation(api.users.markSectionSeen);
 
-  const unseenActivity = useMemo(() => {
-    if (!txs) return 0;
-    const lastSeen = dbUser?.lastSeenActivity ?? 0;
-    return txs.filter((tx) => (tx.executedAt ?? tx._creationTime) > lastSeen).length;
-  }, [txs, dbUser]);
-
-  const unseenRules = useMemo(() => {
-    if (!rules) return 0;
-    const lastSeen = dbUser?.lastSeenRules ?? 0;
-    return rules.filter((r) => r._creationTime > lastSeen).length;
-  }, [rules, dbUser]);
+  const unseenRules = rules
+    ? rules.filter((r) => r._creationTime > lastSeenRules).length
+    : 0;
 
   const markActivitySeen = useCallback(() => {
     if (user) markSeen({ privyId: user.id, section: "activity" });

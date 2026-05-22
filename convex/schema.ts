@@ -20,7 +20,9 @@ export default defineSchema({
     walletAddress: v.optional(v.string()),
     contactEmail: v.optional(v.string()),
     relationship: v.optional(v.string()),
-  }).index("by_owner", ["ownerId"]),
+  }).index("by_owner", ["ownerId"])
+    .index("by_contactEmail", ["contactEmail"])
+    .index("by_walletAddress", ["walletAddress"]),
 
   rules: defineTable({
     ownerId: v.id("users"),
@@ -82,7 +84,8 @@ export default defineSchema({
     notificationError: v.optional(v.string()),
   })
     .index("by_owner", ["ownerId"])
-    .index("by_rule", ["ruleId"]),
+    .index("by_rule", ["ruleId"])
+    .index("by_recipientId", ["recipientId"]),
 
   customTokens: defineTable({
     ownerId: v.id("users"),

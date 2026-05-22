@@ -184,15 +184,15 @@ export const createFromIntent = mutation({
       const recipientId = await ctx.db.insert("recipients", {
         ownerId: user._id,
         displayName: args.recipientName,
-        contactEmail: args.recipientEmail,
+        contactEmail: args.recipientEmail?.toLowerCase(),
         relationship: args.recipientHint,
-        walletAddress: recipientWallet,
+        walletAddress: recipientWallet?.toLowerCase(),
       });
       recipient = (await ctx.db.get(recipientId))!;
     } else {
       await ctx.db.patch(recipient._id, {
-        contactEmail: args.recipientEmail,
-        ...(recipientWallet && !recipient.walletAddress ? { walletAddress: recipientWallet } : {}),
+        contactEmail: args.recipientEmail?.toLowerCase(),
+        ...(recipientWallet && !recipient.walletAddress ? { walletAddress: recipientWallet.toLowerCase() } : {}),
         ...(!recipient.relationship && args.recipientHint ? { relationship: args.recipientHint } : {}),
       });
       // Re-read to get updated fields

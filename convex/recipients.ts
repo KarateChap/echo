@@ -87,9 +87,9 @@ export const add = mutation({
     return await ctx.db.insert("recipients", {
       ownerId: user._id,
       displayName: args.displayName,
-      contactEmail: args.contactEmail,
+      contactEmail: args.contactEmail?.toLowerCase(),
       relationship: args.relationship,
-      walletAddress: args.walletAddress,
+      walletAddress: args.walletAddress?.toLowerCase(),
     });
   },
 });
@@ -102,9 +102,14 @@ export const update = mutation({
     relationship: v.optional(v.string()),
     walletAddress: v.optional(v.string()),
   },
-  handler: async (ctx, { recipientId, ...fields }) => {
+  handler: async (ctx, { recipientId, ...rawFields }) => {
     const recipient = await ctx.db.get(recipientId);
     if (!recipient) throw new Error("Recipient not found");
+    const fields = {
+      ...rawFields,
+      contactEmail: rawFields.contactEmail?.toLowerCase(),
+      walletAddress: rawFields.walletAddress?.toLowerCase(),
+    };
 
     // Update all duplicate rows that share the same owner + name + email
     const siblings = await ctx.db

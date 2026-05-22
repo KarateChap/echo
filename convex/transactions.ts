@@ -1,5 +1,6 @@
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 export const recordSuccess = internalMutation({
   args: {
@@ -107,9 +108,33 @@ export const recordFailure = internalMutation({
   },
 });
 
+// Helper: find recipient IDs that belong to this user (as a receiver)
+async function getMyRecipientIds(
+  ctx: { db: QueryCtx["db"] },
+  user: { _id: Id<"users">; email?: string; walletAddress?: string },
+) {
+  const recipientsByEmail = user.email
+    ? await ctx.db
+        .query("recipients")
+        .withIndex("by_contactEmail", (q) => q.eq("contactEmail", user.email!.toLowerCase()))
+        .collect()
+    : [];
+  const recipientsByWallet = user.walletAddress
+    ? await ctx.db
+        .query("recipients")
+        .withIndex("by_walletAddress", (q) => q.eq("walletAddress", user.walletAddress!.toLowerCase()))
+        .collect()
+    : [];
+  const idSet = new Set(
+    [...recipientsByEmail, ...recipientsByWallet].map((r) => r._id),
+  );
+  return [...idSet];
+}
+
 export const listByUser = query({
-  args: { privyId: v.string() },
-  handler: async (ctx, { privyId }) => {
+  args: { privyId: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { privyId, limit }) => {
+    const cap = limit ?? 50;
     const user = await ctx.db
       .query("users")
       .withIndex("by_privyId", (q) => q.eq("privyId", privyId))
@@ -123,21 +148,21 @@ export const listByUser = query({
       .order("desc")
       .collect();
 
-    // Transactions the user RECEIVED — find recipients matching this user's email/wallet
-    const allRecipients = await ctx.db.query("recipients").collect();
-    const myRecipientIds = allRecipients
-      .filter((r) =>
-        (user.email && r.contactEmail?.toLowerCase() === user.email.toLowerCase()) ||
-        (user.walletAddress && r.walletAddress?.toLowerCase() === user.walletAddress.toLowerCase()),
-      )
-      .map((r) => r._id);
+    // Transactions the user RECEIVED — indexed lookups instead of full table scans
+    const myRecipientIds = await getMyRecipientIds(ctx, user);
 
-    let received: typeof sent = [];
-    if (myRecipientIds.length > 0) {
-      const allTxs = await ctx.db.query("transactions").order("desc").collect();
-      received = allTxs.filter(
-        (tx) => myRecipientIds.some((id) => id === tx.recipientId) && tx.ownerId !== user._id && tx.error !== "REFUND",
-      );
+    const received: typeof sent = [];
+    for (const rid of myRecipientIds) {
+      const txs = await ctx.db
+        .query("transactions")
+        .withIndex("by_recipientId", (q) => q.eq("recipientId", rid))
+        .order("desc")
+        .collect();
+      for (const tx of txs) {
+        if (tx.ownerId !== user._id && tx.error !== "REFUND") {
+          received.push(tx);
+        }
+      }
     }
 
     // Merge and deduplicate
@@ -150,8 +175,11 @@ export const listByUser = query({
     });
     unique.sort((a, b) => (b.executedAt ?? 0) - (a.executedAt ?? 0));
 
+    // Cap before enrichment to avoid unnecessary DB reads
+    const capped = unique.slice(0, cap);
+
     const txItems = await Promise.all(
-      unique.map(async (tx) => {
+      capped.map(async (tx) => {
         const recipient = await ctx.db.get(tx.recipientId);
         const sender = await ctx.db.get(tx.ownerId);
         const isSender = tx.ownerId === user._id;
@@ -208,5 +236,53 @@ export const listByUser = query({
     });
 
     return merged;
+  },
+});
+
+export const countUnseenByUser = query({
+  args: { privyId: v.string(), since: v.number() },
+  handler: async (ctx, { privyId, since }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_privyId", (q) => q.eq("privyId", privyId))
+      .unique();
+    if (!user) return 0;
+
+    // Count sent transactions newer than `since`
+    const sent = await ctx.db
+      .query("transactions")
+      .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
+      .order("desc")
+      .collect();
+    let count = sent.filter((tx) => (tx.executedAt ?? tx._creationTime) > since).length;
+
+    // Count received transactions newer than `since`
+    const myRecipientIds = await getMyRecipientIds(ctx, user);
+    for (const rid of myRecipientIds) {
+      const txs = await ctx.db
+        .query("transactions")
+        .withIndex("by_recipientId", (q) => q.eq("recipientId", rid))
+        .order("desc")
+        .collect();
+      for (const tx of txs) {
+        if (
+          tx.ownerId !== user._id &&
+          tx.error !== "REFUND" &&
+          (tx.executedAt ?? tx._creationTime) > since
+        ) {
+          count++;
+        }
+      }
+    }
+
+    // Count withdrawals
+    const withdrawals = await ctx.db
+      .query("withdrawals")
+      .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
+      .order("desc")
+      .collect();
+    count += withdrawals.filter((w) => (w.executedAt ?? w._creationTime) > since).length;
+
+    return count;
   },
 });

@@ -6,7 +6,7 @@ async function linkWalletToRecipients(ctx: MutationCtx, email: string, walletAdd
   const recipients = await ctx.db.query("recipients").collect();
   for (const r of recipients) {
     if (r.contactEmail?.toLowerCase() === email.toLowerCase() && !r.walletAddress) {
-      await ctx.db.patch(r._id, { walletAddress });
+      await ctx.db.patch(r._id, { walletAddress: walletAddress.toLowerCase() });
 
       // Find rules waiting on this recipient and trigger them
       const awaitingRules = await ctx.db
