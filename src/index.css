@@ -438,6 +438,37 @@ html, body, #root {
   background: rgba(140, 160, 255, 0.3);
 }
 
+/* ── Showcase Landing Page ── */
+
+@keyframes showcase-float {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; }
+  25% { transform: translateY(-20px) translateX(8px); opacity: 0.6; }
+  50% { transform: translateY(-10px) translateX(-6px); opacity: 0.4; }
+  75% { transform: translateY(-25px) translateX(4px); opacity: 0.5; }
+}
+
+@keyframes showcase-glow-breathe {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
+}
+
+@keyframes showcase-scroll-hint {
+  0%, 100% { transform: translateX(0); opacity: 0.3; }
+  50% { transform: translateX(6px); opacity: 0.7; }
+}
+
+.showcase-particle {
+  animation: showcase-float 8s ease-in-out infinite;
+}
+
+.showcase-glow {
+  animation: showcase-glow-breathe 4s ease-in-out infinite;
+}
+
+.showcase-scroll-hint {
+  animation: showcase-scroll-hint 2s ease-in-out infinite;
+}
+
 /* ── Hidden Scrollbar (chat messages) ── */
 .chat-hide-scrollbar {
   scrollbar-width: none;

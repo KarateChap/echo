@@ -4,6 +4,7 @@ import { usePrivy, useWallets, useCreateWallet } from "@privy-io/react-auth";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import Landing from "@/pages/Landing";
+import Showcase from "@/pages/Showcase";
 import VoiceHome from "@/pages/VoiceHome";
 import Rules from "@/pages/Rules";
 import Activity from "@/pages/Activity";
@@ -99,7 +100,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   }, [ready, authenticated, dbUser, localWalletAddress]);
 
   if (!ready) return <div className="grid h-full place-items-center text-sm opacity-60">Loading…</div>;
-  if (!authenticated) return <Navigate to="/" replace />;
+  if (!authenticated) return <Navigate to="/login" replace />;
   return (
     <ErrorBoundary>
       <AudioLevelProvider>
@@ -117,7 +118,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Landing />} />
+      <Route path="/" element={<Showcase />} />
+      <Route path="/login" element={<Landing />} />
       <Route path="/app" element={<RequireAuth><VoiceHome /></RequireAuth>} />
       <Route path="/app/rules" element={<RequireAuth><Rules /></RequireAuth>} />
       <Route path="/app/activity" element={<RequireAuth><Activity /></RequireAuth>} />

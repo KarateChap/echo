@@ -30,10 +30,10 @@ const MOUSE_AMP = 40; // extra wave displacement near cursor
 const MOUSE_GLOW = 0.55; // extra alpha near cursor
 
 /* ── Colour palette ───────────────────────────────────────── */
-const COL_DEEP = [10, 24, 80]; // dark blue at troughs
-const COL_MID = [30, 80, 180]; // mid blue
-const COL_PEAK = [0, 220, 255]; // bright cyan at peaks
-const COL_GLOW = [100, 240, 255]; // extra bright for highest peaks
+const COL_DEEP = [20, 15, 80]; // deep indigo at troughs
+const COL_MID = [80, 70, 200]; // mid indigo
+const COL_PEAK = [140, 130, 255]; // bright indigo at peaks
+const COL_GLOW = [180, 140, 255]; // purple glow for highest peaks
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
@@ -65,8 +65,11 @@ interface Particle {
   wz: number;
 }
 
-export default function ParticleWaveBackground() {
+export default function ParticleWaveBackground({ lite = false }: { lite?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cols = lite ? Math.round(COLS * 0.5) : COLS;
+  const rows = lite ? Math.round(ROWS * 0.5) : ROWS;
+  const spacing = lite ? SPACING * 2 : SPACING;
   const { audioLevelRef: levelRef } = useAudioLevelContext();
   const smoothRef = useRef(0);
   const timeRef = useRef(0);
@@ -85,11 +88,11 @@ export default function ParticleWaveBackground() {
 
     // Build grid
     const grid: Particle[] = [];
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         grid.push({
-          wx: (c - COLS / 2) * SPACING,
-          wz: (r - ROWS / 2) * SPACING + CAM_Z_OFFSET,
+          wx: (c - cols / 2) * spacing,
+          wz: (r - rows / 2) * spacing + CAM_Z_OFFSET,
         });
       }
     }
@@ -158,9 +161,9 @@ export default function ParticleWaveBackground() {
         return;
       }
 
-      // On mobile, skip every other frame when idle to save CPU
+      // Skip frames to save CPU: mobile skips every other, lite mode skips every 2nd frame always
       frameCount++;
-      if (isMobile && levelRef.current < 0.05 && frameCount % 2 !== 0) {
+      if ((isMobile || lite) && frameCount % 2 !== 0) {
         rafRef.current = requestAnimationFrame(frame);
         return;
       }
@@ -202,9 +205,9 @@ export default function ParticleWaveBackground() {
       // grid is built with wz increasing, and after tilt, larger wz = further).
       // Actually with our tilt, we need to sort by projected depth.
       // Since rows go from far (r=0) to near (r=ROWS-1), iterate in order.
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          const p = particles[r * COLS + c];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const p = particles[r * cols + c];
 
           // Multi-layered wave displacement (Y = up)
           const waveY =
@@ -338,13 +341,13 @@ export default function ParticleWaveBackground() {
       // Skip entirely on mobile for performance
       if (!isMobile) {
       ctx.globalCompositeOperation = "lighter";
-      const lineStartRow = Math.max(0, ROWS - 20);
-      for (let r = lineStartRow; r < ROWS - 1; r++) {
-        for (let c = 0; c < COLS - 1; c++) {
-          const i = r * COLS + c;
+      const lineStartRow = Math.max(0, rows - 20);
+      for (let r = lineStartRow; r < rows - 1; r++) {
+        for (let c = 0; c < cols - 1; c++) {
+          const i = r * cols + c;
           const p = particles[i];
           const pRight = particles[i + 1];
-          const pDown = particles[i + COLS];
+          const pDown = particles[i + cols];
 
           // Recompute screen positions for line endpoints
           // (we could cache these but keeping it simple)

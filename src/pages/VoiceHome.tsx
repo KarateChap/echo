@@ -11,6 +11,8 @@ import AudioVisualizer from "@/components/AudioVisualizer";
 import DropTargetOverlay from "@/components/DropTargetOverlay";
 import AddTokenModal from "@/components/AddTokenModal";
 import CustomizeTokensModal from "@/components/CustomizeTokensModal";
+import TutorialModal from "@/components/TutorialModal";
+import { HelpCircle } from "lucide-react";
 import TokenIcon from "@/components/TokenIcon";
 import { formatSchedule } from "@/lib/formatSchedule";
 import { useUnseenCounts } from "@/lib/useUnseenCounts";
@@ -124,6 +126,7 @@ export default function VoiceHome() {
   const [showAddToken, setShowAddToken] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   // User record (for voice gender preference)
   const dbUser = useQuery(api.users.getByPrivyId, user ? { privyId: user.id } : "skip");
@@ -927,6 +930,9 @@ export default function VoiceHome() {
               </button>
             ))}
           </div>
+          <button onClick={() => setShowTutorial(true)} className="glass-nav p-1" title="How to use Echo">
+            <HelpCircle className="h-5 w-5" />
+          </button>
           <button onClick={logout} className="glass-nav text-xs">Sign out</button>
         </div>
       </header>
@@ -1663,6 +1669,8 @@ export default function VoiceHome() {
           }
         }}
       />
+
+      <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)} />
 
       <footer className="space-y-3 pt-3" style={{ borderTop: "1px solid rgba(140, 160, 255, 0.06)" }}>
         <div className="flex items-center gap-2 text-[10px] text-white/40">

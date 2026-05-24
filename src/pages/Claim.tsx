@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { usePrivy, useWallets, useCreateWallet } from "@privy-io/react-auth";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { VoicePlayer } from "../components/VoicePlayer";
 
 /** Truncate an email or wallet for display */
 function truncateSender(name: string) {
@@ -186,12 +187,7 @@ export default function Claim() {
             <span>🎙</span>
             <span>Voice message from {displaySender}</span>
           </div>
-          <audio
-            src={claim.voiceMessageUrl}
-            controls
-            className="w-full [&::-webkit-media-controls-panel]:bg-transparent"
-            style={{ filter: "invert(1) hue-rotate(180deg)", opacity: 0.7, height: 36 }}
-          />
+          <VoicePlayer url={claim.voiceMessageUrl} />
         </div>
       )}
 

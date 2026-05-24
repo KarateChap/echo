@@ -10,6 +10,8 @@ interface Props {
   disabled?: boolean;
   label?: string;
   waiting?: boolean;
+  /** Force waves to stay in circular/border mode even when active */
+  circularWaves?: boolean;
 }
 
 const TAU = Math.PI * 2;
@@ -35,6 +37,7 @@ export default function AudioVisualizer({
   disabled,
   label,
   waiting = false,
+  circularWaves = false,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const smoothLevelRef = useRef(0);
@@ -47,6 +50,8 @@ export default function AudioVisualizer({
   recordingRef.current = recording;
   const waitingRef = useRef(waiting);
   waitingRef.current = waiting;
+  const circularRef = useRef(circularWaves);
+  circularRef.current = circularWaves;
   const sizeRef = useRef(size);
   sizeRef.current = size;
 
@@ -104,7 +109,7 @@ export default function AudioVisualizer({
       const sl = smoothLevelRef.current;
 
       // Blend between circular (idle) and horizontal (active) mode
-      const targetMix = isActive ? 1 : 0;
+      const targetMix = (isActive && !circularRef.current) ? 1 : 0;
       modeMixRef.current += (targetMix - modeMixRef.current) * 0.06;
       const mix = modeMixRef.current;
 
@@ -168,15 +173,18 @@ export default function AudioVisualizer({
 
       // ---- Waves: blend between circular (border) and horizontal modes ----
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, orbR - 1, 0, TAU);
-      ctx.clip();
+      if (!circularRef.current) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, orbR - 1, 0, TAU);
+        ctx.clip();
+      }
 
       const steps = WAVE_STEPS;
 
       for (const wave of WAVE_CONFIGS) {
         const baseAmp = isWaiting ? orbR * 0.04 : orbR * 0.02;
-        const reactiveAmp = orbR * 0.4 * effectLevel * wave.ampScale;
+        const ampScale = circularRef.current ? 0.04 : 0.4;
+        const reactiveAmp = orbR * ampScale * effectLevel * wave.ampScale;
         const amp = baseAmp + reactiveAmp;
 
         ctx.beginPath();
