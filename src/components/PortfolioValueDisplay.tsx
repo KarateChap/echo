@@ -72,7 +72,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
           <div
             className="absolute left-1/2 top-full z-50 mt-2 w-48 -translate-x-1/2 overflow-y-auto rounded-xl border border-white/[0.08] backdrop-blur-xl scrollbar-hide"
             style={{
-              background: "rgba(15, 15, 30, 0.92)",
+              background: "rgba(var(--toast-bg-rgb), 0.92)",
               boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(var(--glass-light-rgb), 0.06)",
               maxHeight: 300,
             }}
@@ -98,7 +98,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
                       className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold"
                       style={{
                         background: isActive ? "rgba(var(--primary-rgb), 0.3)" : "rgba(var(--glass-rgb), 0.08)",
-                        color: isActive ? "rgba(165, 170, 255, 1)" : "rgba(255,255,255,0.4)",
+                        color: isActive ? "rgba(var(--glass-light-rgb), 1)" : "rgba(255,255,255,0.4)",
                       }}
                     >
                       {cfg.symbol}
@@ -115,7 +115,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
                   </div>
                   <span
                     className="text-[10px] tabular-nums"
-                    style={{ color: isActive ? "rgba(165, 170, 255, 0.8)" : "rgba(255,255,255,0.25)" }}
+                    style={{ color: isActive ? "rgba(var(--glass-light-rgb), 0.8)" : "rgba(255,255,255,0.25)" }}
                   >
                     {cFormatted}
                   </span>
