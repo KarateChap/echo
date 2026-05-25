@@ -66,8 +66,24 @@ export const setTranscript = internalMutation({
     if (session?.speculativeParseDone && session.intent && session.preTranscript) {
       const similarity = computeSimilarity(session.preTranscript.toLowerCase(), transcript.toLowerCase());
       if (similarity >= 0.7) {
-        // Transcripts are similar enough — just update the transcript + language, keep existing intent
-        await ctx.db.patch(sessionId, { transcript, ...(detectedLanguage ? { detectedLanguage } : {}) });
+        // Transcripts are similar enough — promote speculative intent to final.
+        // NOW set status="ready" so the confirm card appears and TTS plays once.
+        await ctx.db.patch(sessionId, {
+          transcript,
+          status: "ready",
+          ...(detectedLanguage ? { detectedLanguage } : {}),
+        });
+
+        // Schedule TTS now that intent is confirmed
+        if (session.readbackText) {
+          const owner = await ctx.db.get(session.ownerId);
+          const voiceGender = owner?.voiceGender ?? "female";
+          await ctx.scheduler.runAfter(0, internal.synthesize.synthesizeSpeech, {
+            sessionId,
+            text: session.readbackText,
+            voiceGender,
+          });
+        }
         return;
       }
       // Transcripts diverged — need to re-parse with the more accurate Whisper transcript
@@ -228,18 +244,29 @@ export const setIntent = internalMutation({
       return;
     }
 
-    // Save intent + readbackText to the session immediately so frontend can start streaming TTS
+    if (isSpeculativeParse) {
+      // Speculative parse succeeded — store intent but DON'T set status="ready" yet.
+      // Wait for Whisper to confirm the transcript before showing the confirm card
+      // and playing TTS. This prevents double-TTS when Whisper re-parses.
+      await ctx.db.patch(sessionId, {
+        intent,
+        readbackText,
+        speculativeParseDone: true,
+        ...(detectedLanguage ? { detectedLanguage } : {}),
+      });
+      return;
+    }
+
+    // Final parse (from Whisper or non-speculative): mark ready and play TTS
     await ctx.db.patch(sessionId, {
       intent,
       status: "ready",
       readbackText,
       ...(detectedLanguage ? { detectedLanguage } : {}),
-      ...(isSpeculativeParse ? { speculativeParseDone: true } : {}),
     });
 
     // Schedule background TTS synthesis for the Replay button (stored audio)
     if (readbackText) {
-      // Look up user's voice preference
       const sess = currentSession ?? await ctx.db.get(sessionId);
       const owner = sess ? await ctx.db.get(sess.ownerId) : null;
       const voiceGender = owner?.voiceGender ?? "female";

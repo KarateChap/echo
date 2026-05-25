@@ -1,0 +1,24 @@
+Migrant workers are one of Southeast Asia's biggest economic lifelines — yet remittances are still slow, expensive, and built for paperwork, not people.
+
+That's why we built Echo — a voice-first remittance app built on Morph.
+
+Just say:
+
+"Send bunso 500 pesos worth of USDC every Monday until next month."
+
+Done. No forms. No menus. Just your voice.
+
+Why Morph?
+
+Because remittance isn't just a one-time payment — it's a recurring commitment. And Morph is the consumer blockchain built exactly for that.
+
+Sub-second block times and near-zero gas fees make recurring micro-remittances actually practical — a weekly 500-peso transfer costs a fraction of a cent. Morph's decentralized sequencer network, the first of any L2, removes single points of failure so scheduled payments fire reliably — even at 3 AM.
+
+Here's how Echo works:
+You speak a command. Echo's AI pipeline transcribes your voice, parses your intent into a structured payment rule, and an authorized agent wallet on Morph executes stablecoin transfers automatically, on schedule.
+
+Recipients claim funds with just an email — no seed phrases, no crypto knowledge. You can even attach a voice message, so every remittance feels more personal than a bank transfer.
+
+What's next? Morph mainnet, native mobile apps, and Morph's payment accelerator — bringing Echo to real remittance corridors across Southeast Asia.
+
+Echo — remittance that listens, powered by Morph.

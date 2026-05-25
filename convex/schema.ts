@@ -85,7 +85,8 @@ export default defineSchema({
   })
     .index("by_owner", ["ownerId"])
     .index("by_rule", ["ruleId"])
-    .index("by_recipientId", ["recipientId"]),
+    .index("by_recipientId", ["recipientId"])
+    .index("by_notificationStatus", ["notificationStatus"]),
 
   customTokens: defineTable({
     ownerId: v.id("users"),
@@ -119,7 +120,8 @@ export default defineSchema({
       timestamp: v.number(),
     })),
     status: v.union(v.literal("active"), v.literal("closed")),
-  }).index("by_owner", ["ownerId"]),
+  }).index("by_owner", ["ownerId"])
+    .index("by_status", ["status"]),
 
   withdrawals: defineTable({
     ownerId: v.id("users"),

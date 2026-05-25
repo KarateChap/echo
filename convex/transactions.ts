@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { serverNow } from "./serverTime";
 
 export const recordSuccess = internalMutation({
   args: {
@@ -23,7 +24,7 @@ export const recordSuccess = internalMutation({
       txHash: args.txHash,
       status: "success",
       voiceMessageId: args.voiceMessageId,
-      executedAt: Date.now(),
+      executedAt: serverNow(),
       notificationStatus: args.hasRecipientEmail ? "pending" : "skipped",
     });
   },
@@ -46,13 +47,13 @@ export const markNotificationFailed = internalMutation({
 export const getPendingNotifications = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+    const fiveMinAgo = serverNow() - 5 * 60 * 1000;
     const txs = await ctx.db
       .query("transactions")
+      .withIndex("by_notificationStatus", (q) => q.eq("notificationStatus", "pending"))
       .filter((q) =>
         q.and(
           q.eq(q.field("status"), "success"),
-          q.eq(q.field("notificationStatus"), "pending"),
           q.lte(q.field("executedAt"), fiveMinAgo),
         ),
       )
@@ -79,7 +80,7 @@ export const recordRefund = internalMutation({
       token: args.token,
       txHash: args.txHash,
       status: "success",
-      executedAt: Date.now(),
+      executedAt: serverNow(),
       error: "REFUND",
       notificationStatus: "skipped",
     });
@@ -103,7 +104,7 @@ export const recordFailure = internalMutation({
       token: rule.token,
       status: "failed",
       error,
-      executedAt: Date.now(),
+      executedAt: serverNow(),
     });
   },
 });
@@ -178,24 +179,45 @@ export const listByUser = query({
     // Cap before enrichment to avoid unnecessary DB reads
     const capped = unique.slice(0, cap);
 
+    // Batch-fetch all related docs to avoid N+1
+    const recipientIds = [...new Set(capped.map((tx) => tx.recipientId))];
+    const ownerIds = [...new Set(capped.map((tx) => tx.ownerId))];
+    const ruleIds = [...new Set(capped.map((tx) => tx.ruleId).filter(Boolean))] as Id<"rules">[];
+
+    const [recipientDocs, ownerDocs, ruleDocs] = await Promise.all([
+      Promise.all(recipientIds.map((id) => ctx.db.get(id))),
+      Promise.all(ownerIds.map((id) => ctx.db.get(id))),
+      Promise.all(ruleIds.map((id) => ctx.db.get(id))),
+    ]);
+
+    const recipientMap = new Map(recipientIds.map((id, i) => [id as string, recipientDocs[i]]));
+    const ownerMap = new Map(ownerIds.map((id, i) => [id as string, ownerDocs[i]]));
+    const ruleMap = new Map(ruleIds.map((id, i) => [id as string, ruleDocs[i]]));
+
+    // Batch-fetch voice messages
+    const vmIds = [...new Set(capped.map((tx) => {
+      const rule = tx.ruleId ? ruleMap.get(tx.ruleId) : null;
+      return tx.voiceMessageId ?? rule?.voiceMessageId;
+    }).filter(Boolean))];
+    const vmDocs = await Promise.all(vmIds.map((id) => ctx.db.get(id!)));
+    const vmMap = new Map(vmIds.map((id, i) => [id!, vmDocs[i]]));
+
     const txItems = await Promise.all(
       capped.map(async (tx) => {
-        const recipient = await ctx.db.get(tx.recipientId);
-        const sender = await ctx.db.get(tx.ownerId);
+        const recipient = recipientMap.get(tx.recipientId);
+        const sender = ownerMap.get(tx.ownerId);
         const isSender = tx.ownerId === user._id;
 
-        // Get voice message URL and token — check tx first, then fall back to the rule
-        const rule = tx.ruleId ? await ctx.db.get(tx.ruleId) : null;
+        const rule = tx.ruleId ? ruleMap.get(tx.ruleId) : null;
         let voiceMessageUrl: string | null = null;
         const vmId = tx.voiceMessageId ?? rule?.voiceMessageId;
         if (vmId) {
-          const vm = await ctx.db.get(vmId);
+          const vm = vmMap.get(vmId);
           if (vm) {
             voiceMessageUrl = await ctx.storage.getUrl(vm.storageId);
           }
         }
 
-        // Resolve token: prefer tx.token, fall back to the linked rule's token
         const resolvedToken = tx.token ?? rule?.token;
 
         return {

@@ -2,9 +2,10 @@ import { mutation, query, internalQuery, internalMutation } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { CronExpressionParser } from "cron-parser";
+import { serverNow, serverDate } from "./serverTime";
 
 function nextCronRunAt(cronExpr: string): number {
-  const interval = CronExpressionParser.parse(cronExpr, { currentDate: new Date() });
+  const interval = CronExpressionParser.parse(cronExpr, { currentDate: serverDate() });
   return interval.next().toDate().getTime();
 }
 
@@ -14,7 +15,7 @@ const DAY_NAMES: Record<string, number> = {
 };
 
 function nextScheduleRunAt(schedule: { kind: string; value: string }): number {
-  const now = new Date();
+  const now = serverDate();
 
   // Handle monthly — value is the day of month, e.g. "1", "15", or "last"
   if (schedule.kind === "monthly") {
@@ -85,7 +86,7 @@ function nextScheduleRunAt(schedule: { kind: string; value: string }): number {
 
   // Handle seconds — value is interval in seconds
   if (schedule.kind === "seconds") {
-    return Date.now() + parseInt(schedule.value) * 1000;
+    return serverNow() + parseInt(schedule.value) * 1000;
   }
 
   // Handle yearly — value is "MM-DD"
@@ -118,7 +119,7 @@ function nextScheduleRunAt(schedule: { kind: string; value: string }): number {
   }
 
   // Fallback
-  return Date.now() + 24 * 60 * 60 * 1000;
+  return serverNow() + 24 * 60 * 60 * 1000;
 }
 
 export const createFromIntent = mutation({
@@ -174,10 +175,10 @@ export const createFromIntent = mutation({
     ) ?? null;
 
     // Check if the recipient email belongs to an existing Echo user (already has a wallet)
-    const existingUsers = await ctx.db.query("users").collect();
-    const matchingUser = existingUsers.find(
-      (u) => u.email && u.email.toLowerCase() === args.recipientEmail.toLowerCase(),
-    );
+    const matchingUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.recipientEmail.toLowerCase()))
+      .first();
     const recipientWallet = matchingUser?.walletAddress;
 
     if (!recipient) {
@@ -333,7 +334,7 @@ export const resume = mutation({
     if (!rule) throw new Error("Rule not found");
     const nextRunAt = rule.schedule
       ? nextScheduleRunAt(rule.schedule)
-      : Date.now() + 24 * 60 * 60 * 1000;
+      : serverNow() + 24 * 60 * 60 * 1000;
     await ctx.db.patch(ruleId, { status: "active", nextRunAt });
 
     // Restart self-scheduling loop for seconds-based rules
@@ -412,7 +413,7 @@ export const advanceNextRun = internalMutation({
     } else if (rule.schedule) {
       nextRunAt = nextScheduleRunAt(rule.schedule);
     } else {
-      nextRunAt = Date.now() + 24 * 60 * 60 * 1000;
+      nextRunAt = serverNow() + 24 * 60 * 60 * 1000;
     }
 
     // If next run is past expiration, mark completed and stop advancing
@@ -441,14 +442,27 @@ export const listByUser = query({
       .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
       .collect();
 
-    // Attach recipient names, emails, and voice message audio URLs
+    // Batch-fetch recipients to avoid N+1
+    const recipientIds = [...new Set(rules.map((r) => r.recipientId))];
+    const recipients = await Promise.all(recipientIds.map((id) => ctx.db.get(id)));
+    const recipientMap = new Map(
+      recipientIds.map((id, i) => [id, recipients[i]]),
+    );
+
+    // Batch-fetch voice messages
+    const vmIds = [...new Set(rules.map((r) => r.voiceMessageId).filter(Boolean))] as typeof rules[0]["voiceMessageId"][];
+    const vms = await Promise.all(vmIds.map((id) => ctx.db.get(id!)));
+    const vmMap = new Map(
+      vmIds.map((id, i) => [id!, vms[i]]),
+    );
+
     return Promise.all(
       rules.map(async (rule) => {
-        const recipient = await ctx.db.get(rule.recipientId);
+        const recipient = recipientMap.get(rule.recipientId);
         let voiceMessageUrl: string | null = null;
         let voiceMessageDuration: number | null = null;
         if (rule.voiceMessageId) {
-          const vm = await ctx.db.get(rule.voiceMessageId);
+          const vm = vmMap.get(rule.voiceMessageId);
           if (vm) {
             voiceMessageUrl = await ctx.storage.getUrl(vm.storageId);
             voiceMessageDuration = vm.durationSec;

@@ -1,5 +1,6 @@
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { serverNow } from "./serverTime";
 
 export const createClaimToken = internalMutation({
   args: {
@@ -12,7 +13,7 @@ export const createClaimToken = internalMutation({
     voiceMessageId: v.optional(v.id("voiceMessages")),
   },
   handler: async (ctx, args) => {
-    const token = btoa(`${args.ruleId}:${Date.now()}`)
+    const token = btoa(`${args.ruleId}:${serverNow()}`)
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=/g, "");
@@ -27,7 +28,7 @@ export const createClaimToken = internalMutation({
       amountUsdc: args.amountUsdc,
       voiceMessageId: args.voiceMessageId,
       claimed: false,
-      createdAt: Date.now(),
+      createdAt: serverNow(),
     });
 
     return token;
@@ -74,7 +75,7 @@ export const markClaimed = mutation({
       .withIndex("by_token", (q) => q.eq("token", token))
       .unique();
     if (claim) {
-      await ctx.db.patch(claim._id, { claimed: true, claimedAt: Date.now() });
+      await ctx.db.patch(claim._id, { claimed: true, claimedAt: serverNow() });
     }
   },
 });

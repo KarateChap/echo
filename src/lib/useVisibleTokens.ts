@@ -25,8 +25,9 @@ export function useVisibleTokens(allTokens: Token[]) {
   const [visibleKeys, setVisibleKeys] = useState<string[]>(() => {
     const stored = loadJson<string[]>(STORAGE_KEY, []);
     if (stored.length > 0) return stored;
-    // First-time user: default to first 6
-    return allTokens.slice(0, MAX_VISIBLE).map(tokenKey);
+    // First-time user: default to USDC only
+    const usdc = allTokens.find((t) => t.symbol === "USDC");
+    return usdc ? [tokenKey(usdc)] : allTokens.slice(0, 1).map(tokenKey);
   });
 
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(

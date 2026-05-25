@@ -33,9 +33,16 @@ export const executePayment = internalAction({
       return;
     }
 
-    // Guard: don't execute if cancelled (but allow "completed" — the last scheduled
-    // payment may arrive after the scheduler already marked the rule completed)
+    // Guard: don't execute if cancelled or already completed with all occurrences done.
+    // This prevents double-fire if parallel cron ticks schedule the same payment.
     if (rule.status === "cancelled") {
+      return;
+    }
+    if (rule.status === "completed") {
+      return;
+    }
+    if (rule.totalOccurrences && (rule.executionCount ?? 0) >= rule.totalOccurrences) {
+      await ctx.runMutation(internal.rules.markCompleted, { ruleId });
       return;
     }
 

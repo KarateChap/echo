@@ -5,12 +5,28 @@ import { buildChatSystemPrompt, fetchCryptoPrices } from "./chatAgent";
 import { convertFiatToToken } from "./fiatConversion";
 import { extractDelaySeconds } from "./delayExtractor";
 import { extractTokenFromTranscript } from "./tokenExtractor";
+import { serverNow } from "./serverTime";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-} as const;
+const ALLOWED_ORIGINS = [
+  "https://dev.pay-echo.space",
+  "https://pay-echo.space",
+  "http://localhost:5173",
+  "http://localhost:5174",
+];
+
+/** Return the allowed CORS origin for a given request. */
+function getAllowedOrigin(request?: Request): string {
+  const origin = request?.headers.get("Origin") ?? "";
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
+/** Build CORS headers — call with the request to match origin dynamically. */
+function corsHeaders(request?: Request) {
+  return { "Access-Control-Allow-Origin": getAllowedOrigin(request) };
+}
+
 
 const SYSTEM_PROMPT = `You evaluate whether a spoken remittance instruction is semantically complete.
 A complete instruction MUST have:
@@ -33,7 +49,7 @@ http.route({
     if (!apiKey) {
       return new Response(JSON.stringify({ complete: false }), {
         status: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": getAllowedOrigin(request) },
       });
     }
 
@@ -46,7 +62,7 @@ http.route({
       if (!transcript || transcript.trim().length < 3) {
         return new Response(JSON.stringify({ complete: false }), {
           status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": getAllowedOrigin(request) },
         });
       }
 
@@ -74,7 +90,7 @@ http.route({
       if (!res.ok) {
         return new Response(JSON.stringify({ complete: false }), {
           status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": getAllowedOrigin(request) },
         });
       }
 
@@ -85,12 +101,12 @@ http.route({
 
       return new Response(JSON.stringify({ complete: answer === "yes" }), {
         status: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": getAllowedOrigin(request) },
       });
     } catch {
       return new Response(JSON.stringify({ complete: false }), {
         status: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": getAllowedOrigin(request) },
       });
     }
   }),
@@ -100,11 +116,11 @@ http.route({
 http.route({
   path: "/api/checkCompleteness",
   method: "OPTIONS",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     return new Response(null, {
       status: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": getAllowedOrigin(request),
         "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -141,7 +157,7 @@ http.route({
     if (!apiKey) {
       return new Response(JSON.stringify({ email: null }), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     }
 
@@ -150,7 +166,7 @@ http.route({
       if (!transcript || transcript.trim().length < 3) {
         return new Response(JSON.stringify({ email: null }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -174,7 +190,7 @@ http.route({
       if (!res.ok) {
         return new Response(JSON.stringify({ email: null }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -186,12 +202,12 @@ http.route({
 
       return new Response(JSON.stringify({ email }), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     } catch {
       return new Response(JSON.stringify({ email: null }), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     }
   }),
@@ -200,11 +216,11 @@ http.route({
 http.route({
   path: "/api/parseEmail",
   method: "OPTIONS",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     return new Response(null, {
       status: 204,
       headers: {
-        ...CORS_HEADERS,
+        ...corsHeaders(request),
         "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -225,7 +241,7 @@ http.route({
       if (!text) {
         return new Response(JSON.stringify({ error: "Missing text" }), {
           status: 400,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -261,7 +277,7 @@ http.route({
             headers: {
               "Content-Type": "audio/mpeg",
               "Transfer-Encoding": "chunked",
-              ...CORS_HEADERS,
+              ...corsHeaders(request),
             },
           });
         }
@@ -273,7 +289,7 @@ http.route({
       if (!openaiKey) {
         return new Response(JSON.stringify({ error: "No TTS provider configured" }), {
           status: 500,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -296,7 +312,7 @@ http.route({
         console.error(`OpenAI TTS ${res.status}: ${detail.slice(0, 200)}`);
         return new Response(JSON.stringify({ error: "TTS generation failed" }), {
           status: 502,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -306,14 +322,14 @@ http.route({
         headers: {
           "Content-Type": "audio/mpeg",
           "Content-Length": String(audioBuffer.byteLength),
-          ...CORS_HEADERS,
+          ...corsHeaders(request),
         },
       });
     } catch (e) {
       console.error("TTS error:", e);
       return new Response(JSON.stringify({ error: "Internal error" }), {
         status: 500,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     }
   }),
@@ -322,11 +338,11 @@ http.route({
 http.route({
   path: "/api/tts",
   method: "OPTIONS",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     return new Response(null, {
       status: 204,
       headers: {
-        ...CORS_HEADERS,
+        ...corsHeaders(request),
         "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -350,7 +366,7 @@ http.route({
       if (!privyId || !message) {
         return new Response(JSON.stringify({ error: "Missing privyId or message" }), {
           status: 400,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -362,7 +378,7 @@ http.route({
 
       return new Response(JSON.stringify(result), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     } catch (e: any) {
       console.error("Chat agent error:", e);
@@ -375,7 +391,7 @@ http.route({
         }),
         {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         },
       );
     }
@@ -385,11 +401,11 @@ http.route({
 http.route({
   path: "/api/chat",
   method: "OPTIONS",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     return new Response(null, {
       status: 204,
       headers: {
-        ...CORS_HEADERS,
+        ...corsHeaders(request),
         "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -414,13 +430,13 @@ const CACHE_TTL = 60_000; // 60 seconds
 http.route({
   path: "/api/prices",
   method: "GET",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     try {
       // Return cached data if fresh
-      if (priceCache && Date.now() - priceCache.ts < CACHE_TTL) {
+      if (priceCache && serverNow() - priceCache.ts < CACHE_TTL) {
         return new Response(JSON.stringify(priceCache.data), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -460,18 +476,32 @@ http.route({
         }
       }
 
-      // If still empty after all fallbacks, return stale cache or null
+      // If still empty after all fallbacks, return stale cache or use hardcoded fallback
       if (!eth.usd && !usdCoin.usd) {
         if (priceCache) {
           return new Response(JSON.stringify(priceCache.data), {
             status: 200,
-            headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+            headers: { "Content-Type": "application/json", ...corsHeaders(request) },
           });
         }
-        return new Response(JSON.stringify({ prices: null, currencies: SUPPORTED_CURRENCIES }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
-        });
+        // Hardcoded approximate prices so portfolio value is never ₱0.00
+        // when all price APIs are rate-limited or down
+        eth = {
+          usd: 2500, php: 142500, eur: 2300, gbp: 1975, jpy: 387500,
+          sgd: 3325, krw: 3425000, aud: 3875, cad: 3425, chf: 2200,
+          cny: 18000, hkd: 19500, inr: 212500, idr: 40000000, myr: 10750,
+          nzd: 4225, thb: 86250, twd: 77500, vnd: 63750000, mmk: 5250000,
+          khr: 10125000, lak: 55000000, bnd: 3325, aed: 9175, sar: 9375,
+          brl: 12750, mxn: 42500, zar: 45000,
+        };
+        usdCoin = {
+          usd: 1, php: 57, eur: 0.92, gbp: 0.79, jpy: 155,
+          sgd: 1.33, krw: 1370, aud: 1.55, cad: 1.37, chf: 0.88,
+          cny: 7.2, hkd: 7.8, inr: 85, idr: 16000, myr: 4.3,
+          nzd: 1.69, thb: 34.5, twd: 31, vnd: 25500, mmk: 2100,
+          khr: 4050, lak: 22000, bnd: 1.33, aed: 3.67, sar: 3.75,
+          brl: 5.1, mxn: 17, zar: 18,
+        };
       }
 
       // Build price map — USDT mirrors USDC (both stablecoins), HTT = 0
@@ -486,25 +516,34 @@ http.route({
           HTT: zeroPrices,
         },
         currencies: SUPPORTED_CURRENCIES,
-        updatedAt: Date.now(),
+        updatedAt: serverNow(),
       };
 
-      priceCache = { data: result, ts: Date.now() };
+      priceCache = { data: result, ts: serverNow() };
 
       return new Response(JSON.stringify(result), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     } catch {
       if (priceCache) {
         return new Response(JSON.stringify(priceCache.data), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
-      return new Response(JSON.stringify({ prices: null, currencies: SUPPORTED_CURRENCIES }), {
+      // Hardcoded fallback — same as above, never return prices: null
+      const fallbackEth: Record<string, number> = { usd: 2500, php: 142500 };
+      const fallbackStable: Record<string, number> = { usd: 1, php: 57 };
+      const zeroPrices: Record<string, number> = {};
+      for (const c of SUPPORTED_CURRENCIES) zeroPrices[c.toLowerCase()] = 0;
+      return new Response(JSON.stringify({
+        prices: { ETH: fallbackEth, USDC: fallbackStable, USDT: fallbackStable, HTT: zeroPrices },
+        currencies: SUPPORTED_CURRENCIES,
+        updatedAt: serverNow(),
+      }), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     }
   }),
@@ -513,11 +552,11 @@ http.route({
 http.route({
   path: "/api/prices",
   method: "OPTIONS",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     return new Response(null, {
       status: 204,
       headers: {
-        ...CORS_HEADERS,
+        ...corsHeaders(request),
         "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -541,7 +580,7 @@ http.route({
       if (!privyId || !message) {
         return new Response(JSON.stringify({ error: "Missing privyId or message" }), {
           status: 400,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -549,7 +588,7 @@ http.route({
       if (!apiKey) {
         return new Response(JSON.stringify({ error: "OPENAI_API_KEY not configured" }), {
           status: 500,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -558,7 +597,7 @@ http.route({
       if (!context) {
         return new Response(JSON.stringify({ error: "User not found" }), {
           status: 404,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -569,7 +608,7 @@ http.route({
       const messages: Array<{ role: "user" | "assistant"; content: string; timestamp: number }> =
         existingSession?.messages ?? [];
 
-      messages.push({ role: "user" as const, content: message, timestamp: Date.now() });
+      messages.push({ role: "user" as const, content: message, timestamp: serverNow() });
 
       // Fetch live crypto prices so agent can answer price questions
       const priceSummary = await fetchCryptoPrices();
@@ -798,7 +837,7 @@ Rules:
       }
 
       // Add assistant response
-      messages.push({ role: "assistant" as const, content: parsed.text, timestamp: Date.now() });
+      messages.push({ role: "assistant" as const, content: parsed.text, timestamp: serverNow() });
 
       // Save session (fire-and-forget — don't block the response)
       ctx.runMutation(internal.chatAgent.upsertChatSession, {
@@ -817,7 +856,7 @@ Rules:
         }),
         {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         },
       );
     } catch (e: any) {
@@ -831,7 +870,7 @@ Rules:
         }),
         {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         },
       );
     }
@@ -841,11 +880,11 @@ Rules:
 http.route({
   path: "/api/chat-stream",
   method: "OPTIONS",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     return new Response(null, {
       status: 204,
       headers: {
-        ...CORS_HEADERS,
+        ...corsHeaders(request),
         "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -876,7 +915,7 @@ http.route({
       if (!storageId) {
         return new Response(JSON.stringify({ transcript: "" }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -884,7 +923,7 @@ http.route({
       if (!apiKey) {
         return new Response(JSON.stringify({ transcript: "" }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -892,7 +931,7 @@ http.route({
       if (!audioBlob) {
         return new Response(JSON.stringify({ transcript: "" }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
@@ -911,19 +950,19 @@ http.route({
       if (!res.ok) {
         return new Response(JSON.stringify({ transcript: "" }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+          headers: { "Content-Type": "application/json", ...corsHeaders(request) },
         });
       }
 
       const json = (await res.json()) as { text: string };
       return new Response(JSON.stringify({ transcript: json.text?.trim() ?? "" }), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     } catch {
       return new Response(JSON.stringify({ transcript: "" }), {
         status: 200,
-        headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+        headers: { "Content-Type": "application/json", ...corsHeaders(request) },
       });
     }
   }),
@@ -932,11 +971,11 @@ http.route({
 http.route({
   path: "/api/transcribeForChat",
   method: "OPTIONS",
-  handler: httpAction(async () => {
+  handler: httpAction(async (_ctx, request) => {
     return new Response(null, {
       status: 204,
       headers: {
-        ...CORS_HEADERS,
+        ...corsHeaders(request),
         "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },

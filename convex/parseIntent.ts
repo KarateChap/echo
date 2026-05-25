@@ -4,11 +4,12 @@ import { v } from "convex/values";
 import { convertFiatToToken } from "./fiatConversion";
 import { extractDelaySeconds } from "./delayExtractor";
 import { extractTokenFromTranscript } from "./tokenExtractor";
+import { serverDate } from "./serverTime";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
 function buildSystemPrompt(): string {
-  const today = new Date().toISOString().split("T")[0];
+  const today = serverDate().toISOString().split("T")[0];
   return `You are Echo, a voice-first remittance assistant for Filipino OFWs.
 The user just spoke a remittance instruction — possibly in Taglish (mixed Tagalog and English).
 Parse it into a structured JSON intent.

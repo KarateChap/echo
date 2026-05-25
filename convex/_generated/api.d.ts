@@ -21,6 +21,7 @@ import type * as parseIntent from "../parseIntent.js";
 import type * as recipients from "../recipients.js";
 import type * as rules from "../rules.js";
 import type * as scheduler from "../scheduler.js";
+import type * as serverTime from "../serverTime.js";
 import type * as synthesize from "../synthesize.js";
 import type * as tokenExtractor from "../tokenExtractor.js";
 import type * as transactions from "../transactions.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   recipients: typeof recipients;
   rules: typeof rules;
   scheduler: typeof scheduler;
+  serverTime: typeof serverTime;
   synthesize: typeof synthesize;
   tokenExtractor: typeof tokenExtractor;
   transactions: typeof transactions;

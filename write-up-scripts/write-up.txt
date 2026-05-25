@@ -1,0 +1,15 @@
+Echo — Send Money With Your Voice
+
+Millions of migrant workers across Southeast Asia send money home every month, yet remittances remain slow, expensive, and confusing. Echo changes that with a single spoken sentence.
+
+"Send mama 10,000 pesos every first of the month."
+
+That's it. No forms. No fees. No waiting.
+
+Echo is a voice-first remittance agent built on Morph. Users speak naturally in their native language — mixing local tongues with English the way people actually talk — and Echo handles the rest. Our AI pipeline transcribes speech, parses intent into structured commands, and executes token transfers on-chain through an authorized agent wallet. Recipients receive a claim link, sign up with one tap, and instantly access their funds.
+
+What makes Echo powerful is automation. Users don't just send once — they set rules. Recurring transfers fire on schedule. Conditional top-ups trigger when a loved one's balance drops too low. An authorized agent executes transfers autonomously, so money moves even while you're asleep.
+
+We built Echo because remittances shouldn't require financial literacy. They should work like a conversation. By combining voice AI, automation, and stablecoin rails on Morph, Echo makes cross-border payments as simple as talking to family.
+
+Working demo - live on testnet: https://dev.pay-echo.space/

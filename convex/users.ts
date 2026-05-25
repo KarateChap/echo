@@ -1,11 +1,17 @@
 import { mutation, query, internalQuery, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { serverNow } from "./serverTime";
 
 async function linkWalletToRecipients(ctx: MutationCtx, email: string, walletAddress: string) {
-  const recipients = await ctx.db.query("recipients").collect();
+  // Use indexed lookup instead of full table scan
+  const recipients = await ctx.db
+    .query("recipients")
+    .withIndex("by_contactEmail", (q) => q.eq("contactEmail", email.toLowerCase()))
+    .collect();
+
   for (const r of recipients) {
-    if (r.contactEmail?.toLowerCase() === email.toLowerCase() && !r.walletAddress) {
+    if (!r.walletAddress) {
       await ctx.db.patch(r._id, { walletAddress: walletAddress.toLowerCase() });
 
       // Find rules waiting on this recipient and trigger them
@@ -117,7 +123,7 @@ export const markSectionSeen = mutation({
       .unique();
     if (!user) throw new Error("User not found");
     const field = section === "activity" ? "lastSeenActivity" : "lastSeenRules";
-    await ctx.db.patch(user._id, { [field]: Date.now() });
+    await ctx.db.patch(user._id, { [field]: serverNow() });
   },
 });
 

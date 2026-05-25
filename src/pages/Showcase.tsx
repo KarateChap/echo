@@ -245,11 +245,10 @@ function ShowcaseInner() {
         <section ref={(el) => { sectionRefs.current[0] = el; }} data-idx={0} className="relative flex h-full w-screen shrink-0 snap-start items-center justify-center overflow-hidden">
           <div className={`relative flex items-center justify-center transition-all duration-700 ${visible.has(0) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
             <SectionOrb isActive={active === 0} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
-            <div className={`absolute inset-0 flex flex-col items-center justify-center ${isSm ? "gap-3 px-6" : "gap-5 px-8"}`}>
+            <div className={`absolute inset-0 flex flex-col items-center justify-center ${isSm ? "gap-2 px-6" : "gap-3 px-8"}`}>
               <img src="/echo-icon.png" alt="Echo" className={`${logoCls} drop-shadow-[0_0_24px_rgba(99,102,241,0.5)]`} />
-              <p className={`max-w-xs text-center ${isSm ? "text-sm" : "text-base"} leading-relaxed text-white/50`}>
-                Send love home&thinsp;&mdash;&thinsp;not just money.
-              </p>
+              <p className={`text-center ${isSm ? "text-xs" : "text-sm"} font-medium tracking-wider uppercase text-white/40`}>on</p>
+              <img src="/morph-logo.png" alt="Morph" className={`${isSm ? "h-8" : "h-14"} object-contain`} />
             </div>
           </div>
           <div className={`absolute ${isSm ? "bottom-16" : "bottom-24"} left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-white/20 showcase-scroll-hint`}>
@@ -273,8 +272,8 @@ function ShowcaseInner() {
                 </svg>
               </div>
               <h2 className={headingCls} style={HEADING_STYLE}>Just speak.</h2>
-              <p className={`max-w-[220px] text-center ${subCls} leading-relaxed text-white/45`}>
-                Say it in any language.<br />Echo understands.
+              <p className={`max-w-[240px] text-center ${subCls} leading-relaxed text-white/45`}>
+                Say it in any language.<br />Echo's AI turns your voice into<br />on-chain payments on Morph.
               </p>
             </div>
           </div>
@@ -282,41 +281,65 @@ function ShowcaseInner() {
 
         {/* ──── Section 3: Smart Payments ──── */}
         <section ref={(el) => { sectionRefs.current[2] = el; }} data-idx={2} className="relative flex h-full w-screen shrink-0 snap-start items-center justify-center overflow-hidden">
-          <div className={`relative flex items-center justify-center transition-all duration-700 ${visible.has(2) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
-            <SectionOrb isActive={active === 2} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
-            <div className={`absolute inset-0 flex flex-col items-center justify-center ${isSm ? "gap-3 px-4" : "gap-5 px-8"}`}>
-              <h2 className={`${headingCls} text-center`} style={HEADING_STYLE}>One voice.<br />Every payment.</h2>
-              <div className={`grid grid-cols-2 ${isSm ? "gap-1" : "gap-2.5"} mt-1`}>
-                {PAYMENT_TYPES.map(({ icon, label }) => (
-                  <div key={label} className={`flex flex-col items-center ${isSm ? "gap-0.5 rounded-md px-2 py-1.5" : "gap-1.5 rounded-xl px-4 py-3"}`} style={{ background: "rgba(140, 160, 255, 0.06)", border: "1px solid rgba(140, 160, 255, 0.08)" }}>
-                    <svg className={`${isSm ? "h-3 w-3" : "h-4 w-4"} text-purple-400/80`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d={icon} />
-                    </svg>
-                    <span className={`${isSm ? "text-[8px]" : "text-[11px]"} font-medium text-white/55`}>{label}</span>
-                  </div>
-                ))}
+          <div className={`relative flex flex-col items-center justify-center transition-all duration-700 ${visible.has(2) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
+            <div className="relative flex items-center justify-center">
+              <SectionOrb isActive={active === 2} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
+              <div className={`absolute inset-0 flex flex-col items-center justify-center ${isSm ? "gap-3 px-4" : "gap-5 px-8 py-[18%]"}`}>
+                <h2 className={`${headingCls} text-center`} style={HEADING_STYLE}>One voice.<br />Every payment.</h2>
+                <div className={`grid grid-cols-2 ${isSm ? "gap-1" : "gap-2.5"} mt-1`}>
+                  {PAYMENT_TYPES.map(({ icon, label }) => (
+                    <div key={label} className={`flex flex-col items-center ${isSm ? "gap-0.5 rounded-md px-2 py-1.5" : "gap-1.5 rounded-xl px-4 py-3"}`} style={{ background: "rgba(140, 160, 255, 0.06)", border: "1px solid rgba(140, 160, 255, 0.08)" }}>
+                      <svg className={`${isSm ? "h-3 w-3" : "h-4 w-4"} text-purple-400/80`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d={icon} />
+                      </svg>
+                      <span className={`${isSm ? "text-[8px]" : "text-[11px]"} font-medium text-white/55`}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+                {!isSm && (
+                  <p className="max-w-[240px] text-center text-[11px] leading-relaxed text-white/30 mt-1">
+                    Near-zero gas &amp; sub-second finality on Morph<br />make micro-remittances practical.
+                  </p>
+                )}
               </div>
             </div>
+            {isSm && (
+              <p className="max-w-[240px] text-center text-[9px] leading-relaxed text-white/30 mt-3">
+                Near-zero gas &amp; sub-second finality on Morph<br />make micro-remittances practical.
+              </p>
+            )}
           </div>
         </section>
 
         {/* ──── Section 4: Voice Message ──── */}
         <section ref={(el) => { sectionRefs.current[3] = el; }} data-idx={3} className="relative flex h-full w-screen shrink-0 snap-start items-center justify-center overflow-hidden">
-          <div className={`relative flex items-center justify-center transition-all duration-700 ${visible.has(3) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
-            <SectionOrb isActive={active === 3} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
-            <div className={`absolute inset-0 flex flex-col items-center justify-center ${gapCls} px-6`}>
-              <div className={`flex ${iconBox} items-center justify-center rounded-full`} style={{ background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.18)" }}>
-                <svg className={`${iconSvg} text-purple-400`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
+          <div className={`relative flex flex-col items-center justify-center transition-all duration-700 ${visible.has(3) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
+            <div className="relative flex items-center justify-center">
+              <SectionOrb isActive={active === 3} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
+              <div className={`absolute inset-0 flex flex-col items-center justify-center ${gapCls} px-6`}>
+                <div className={`flex ${iconBox} items-center justify-center rounded-full`} style={{ background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.18)" }}>
+                  <svg className={`${iconSvg} text-purple-400`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                </div>
+                <h2 className={`${headingCls} text-center`} style={HEADING_STYLE}>Add your voice.</h2>
+                <p className={`max-w-[240px] text-center ${subCls} leading-relaxed text-white/45`}>
+                  Record a message.<br />They'll hear you when they claim.
+                </p>
+                {!isSm && (
+                  <p className="max-w-[240px] text-center text-[11px] leading-relaxed text-white/30 mt-1">
+                    No seed phrases. No crypto knowledge.<br />Just an email to claim.
+                  </p>
+                )}
               </div>
-              <h2 className={`${headingCls} text-center`} style={HEADING_STYLE}>Add your voice.</h2>
-              <p className={`max-w-[240px] text-center ${subCls} leading-relaxed text-white/45`}>
-                Record a message.<br />They'll hear you when they claim.
-              </p>
             </div>
+            {isSm && (
+              <p className="max-w-[240px] text-center text-[9px] leading-relaxed text-white/30 mt-3">
+                No seed phrases. No crypto knowledge.<br />Just an email to claim.
+              </p>
+            )}
           </div>
         </section>
 
@@ -332,7 +355,10 @@ function ShowcaseInner() {
               </button>
             </div>
           </div>
-          <p className={`absolute ${isSm ? "bottom-16" : "bottom-24"} text-[11px] text-white/20`}>Powered by Morph</p>
+          <div className={`absolute ${isSm ? "bottom-16" : "bottom-24"} flex items-center gap-2`}>
+            <span className="text-[11px] text-white/20">Powered by</span>
+            <img src="/morph-logo.png" alt="Morph" className="h-4 opacity-30" />
+          </div>
         </section>
       </div>
 

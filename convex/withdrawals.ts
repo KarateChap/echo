@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { serverNow } from "./serverTime";
 
 export const create = mutation({
   args: {
@@ -48,7 +49,7 @@ export const markSuccess = mutation({
     await ctx.db.patch(withdrawalId, {
       status: "success",
       txHash,
-      executedAt: Date.now(),
+      executedAt: serverNow(),
     });
   },
 });
@@ -62,7 +63,7 @@ export const markFailed = mutation({
     await ctx.db.patch(withdrawalId, {
       status: "failed",
       error,
-      executedAt: Date.now(),
+      executedAt: serverNow(),
     });
   },
 });

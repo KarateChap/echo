@@ -13,7 +13,6 @@ export const synthesizeSpeech = internalAction({
   handler: async (ctx, { sessionId, text, voiceGender }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      console.warn("OPENAI_API_KEY missing — skipping readback");
       return;
     }
 

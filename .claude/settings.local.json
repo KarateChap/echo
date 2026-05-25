@@ -12,7 +12,8 @@
       "WebFetch(domain:docs.transak.com)",
       "WebFetch(domain:transak.com)",
       "WebFetch(domain:api.transak.com)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "WebSearch"
     ]
   }
 }

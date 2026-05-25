@@ -1,6 +1,7 @@
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { serverNow } from "./serverTime";
 
 export const tickScheduledRules = internalAction({
   args: {},
@@ -12,7 +13,7 @@ export const tickScheduledRules = internalAction({
       if (rule.kind === "recurring" && rule.schedule?.kind === "seconds") continue;
 
       // Check if the rule has expired
-      if (rule.expiresAt && Date.now() > rule.expiresAt) {
+      if (rule.expiresAt && serverNow() > rule.expiresAt) {
         await ctx.runMutation(internal.rules.markCompleted, {
           ruleId: rule._id,
         });
@@ -70,7 +71,7 @@ export const executeSecondsRule = internalAction({
     // set the occurrence limit is the precise stopping mechanism; expiresAt is
     // just a safety net and scheduling jitter can cause the last attempt to land
     // a few ms after expiresAt, prematurely killing the final payment.
-    if (rule.expiresAt && Date.now() > rule.expiresAt && !rule.totalOccurrences) {
+    if (rule.expiresAt && serverNow() > rule.expiresAt && !rule.totalOccurrences) {
       await ctx.runMutation(internal.rules.markCompleted, { ruleId });
       return;
     }
@@ -94,7 +95,7 @@ import { internalQuery } from "./_generated/server";
 export const getDueRules = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const now = Date.now();
+    const now = serverNow();
     return await ctx.db
       .query("rules")
       .withIndex("by_status_and_next_run")
@@ -146,7 +147,7 @@ export const tickConditionalRules = internalAction({
         if (!rule.condition) continue;
 
         // Check if expired
-        if (rule.expiresAt && Date.now() > rule.expiresAt) {
+        if (rule.expiresAt && serverNow() > rule.expiresAt) {
           await ctx.runMutation(internal.rules.markCompleted, { ruleId: rule._id });
           continue;
         }

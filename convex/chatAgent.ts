@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { convertFiatToToken } from "./fiatConversion";
 import { extractDelaySeconds } from "./delayExtractor";
 import { extractTokenFromTranscript } from "./tokenExtractor";
+import { serverNow, serverDate } from "./serverTime";
 
 // ── Fetch live crypto prices ────────────────────────────────────────────────
 
@@ -58,23 +59,6 @@ export const getUserContext = internalQuery({
       .query("rules")
       .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
       .collect();
-    const rulesWithNames = await Promise.all(
-      rules.map(async (rule) => {
-        const recipient = await ctx.db.get(rule.recipientId);
-        return {
-          kind: rule.kind,
-          amountUsdc: rule.amountUsdc,
-          token: rule.token ?? "USDC",
-          status: rule.status,
-          recipientName: recipient?.displayName ?? "Unknown",
-          schedule: rule.schedule,
-          condition: rule.condition,
-          executionCount: rule.executionCount ?? 0,
-          totalOccurrences: rule.totalOccurrences,
-          nextRunAt: rule.nextRunAt,
-        };
-      }),
-    );
 
     // Recent transactions (last 20)
     const txs = await ctx.db
@@ -82,19 +66,44 @@ export const getUserContext = internalQuery({
       .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
       .order("desc")
       .take(20);
-    const txsWithNames = await Promise.all(
-      txs.map(async (tx) => {
-        const recipient = await ctx.db.get(tx.recipientId);
-        return {
-          amountUsdc: tx.amountUsdc,
-          token: tx.token ?? "USDC",
-          status: tx.status,
-          recipientName: recipient?.displayName ?? "Unknown",
-          executedAt: tx.executedAt,
-          txHash: tx.txHash,
-        };
-      }),
+
+    // Batch-fetch all recipients referenced by rules and transactions
+    const allRecipientIds = [...new Set([
+      ...rules.map((r) => r.recipientId),
+      ...txs.map((t) => t.recipientId),
+    ])];
+    const recipientDocs = await Promise.all(allRecipientIds.map((id) => ctx.db.get(id)));
+    const recipientMap = new Map(
+      allRecipientIds.map((id, i) => [id, recipientDocs[i]]),
     );
+
+    const rulesWithNames = rules.map((rule) => {
+      const recipient = recipientMap.get(rule.recipientId);
+      return {
+        kind: rule.kind,
+        amountUsdc: rule.amountUsdc,
+        token: rule.token ?? "USDC",
+        status: rule.status,
+        recipientName: recipient?.displayName ?? "Unknown",
+        schedule: rule.schedule,
+        condition: rule.condition,
+        executionCount: rule.executionCount ?? 0,
+        totalOccurrences: rule.totalOccurrences,
+        nextRunAt: rule.nextRunAt,
+      };
+    });
+
+    const txsWithNames = txs.map((tx) => {
+      const recipient = recipientMap.get(tx.recipientId);
+      return {
+        amountUsdc: tx.amountUsdc,
+        token: tx.token ?? "USDC",
+        status: tx.status,
+        recipientName: recipient?.displayName ?? "Unknown",
+        executedAt: tx.executedAt,
+        txHash: tx.txHash,
+      };
+    });
 
     return {
       userId: user._id,
@@ -170,7 +179,7 @@ export function buildChatSystemPrompt(context: {
     recipientName: string; executedAt?: number | null;
   }>;
 }): string {
-  const today = new Date().toISOString().split("T")[0];
+  const today = serverDate().toISOString().split("T")[0];
 
   const activeRules = context.rules.filter((r) => ["active", "pending", "awaitingRecipient"].includes(r.status));
   const completedRules = context.rules.filter((r) => r.status === "completed");
@@ -387,7 +396,7 @@ export const chat = action({
     messages.push({
       role: "user" as const,
       content: message,
-      timestamp: Date.now(),
+      timestamp: serverNow(),
     });
 
     // Fetch live crypto prices
@@ -618,7 +627,7 @@ Rules:
     messages.push({
       role: "assistant" as const,
       content: parsed.text,
-      timestamp: Date.now(),
+      timestamp: serverNow(),
     });
 
     // Save to chat session
