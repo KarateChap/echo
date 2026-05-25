@@ -16,15 +16,15 @@ export default function DropTargetOverlay({ state }: DropTargetOverlayProps) {
           width: isHovering ? 110 : 100,
           height: isHovering ? 110 : 100,
           border: isHovering
-            ? "2px solid rgba(99, 102, 241, 0.5)"
+            ? "2px solid rgba(var(--primary-rgb), 0.5)"
             : isDragging
-              ? "2px dashed rgba(165, 180, 252, 0.3)"
-              : "2px dashed rgba(165, 180, 252, 0.2)",
+              ? "2px dashed rgba(var(--glass-light-rgb), 0.3)"
+              : "2px dashed rgba(var(--glass-light-rgb), 0.2)",
           background: isHovering
-            ? "rgba(99, 102, 241, 0.06)"
+            ? "rgba(var(--primary-rgb), 0.06)"
             : "transparent",
           boxShadow: isHovering
-            ? "0 0 24px rgba(99, 102, 241, 0.25), inset 0 0 20px rgba(99, 102, 241, 0.06)"
+            ? "0 0 24px rgba(var(--primary-rgb), 0.25), inset 0 0 20px rgba(var(--primary-rgb), 0.06)"
             : "none",
           animation: isHovering
             ? "drop-target-glow 1.5s ease-in-out infinite"
@@ -43,10 +43,10 @@ export default function DropTargetOverlay({ state }: DropTargetOverlayProps) {
           className="transition-all duration-300"
           style={{
             opacity: isHovering ? 0.9 : isDragging ? 0.6 : 0.55,
-            color: isHovering ? "#818cf8" : "#a5b4fc",
+            color: isHovering ? "var(--color-primary-glow)" : "var(--color-primary-glow)",
             filter: isHovering
-              ? "drop-shadow(0 0 6px rgba(129,140,248,0.5))"
-              : "drop-shadow(0 0 4px rgba(140,160,255,0.2))",
+              ? "drop-shadow(0 0 6px rgba(var(--glass-rgb),0.5))"
+              : "drop-shadow(0 0 4px rgba(var(--glass-rgb),0.2))",
           }}
         >
           <circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.5" fill="none" />
@@ -59,10 +59,10 @@ export default function DropTargetOverlay({ state }: DropTargetOverlayProps) {
         <span
           className="mt-1.5 text-[10px] font-semibold tracking-widest uppercase transition-all duration-300"
           style={{
-            color: isHovering ? "rgba(129, 140, 248, 0.9)" : isDragging ? "rgba(165, 180, 252, 0.6)" : "rgba(165, 180, 252, 0.5)",
+            color: isHovering ? "rgba(var(--glass-rgb), 0.9)" : isDragging ? "rgba(var(--glass-light-rgb), 0.6)" : "rgba(var(--glass-light-rgb), 0.5)",
             textShadow: isHovering
-              ? "0 0 10px rgba(129,140,248,0.4)"
-              : "0 0 8px rgba(140,160,255,0.15)",
+              ? "0 0 10px rgba(var(--glass-rgb),0.4)"
+              : "0 0 8px rgba(var(--glass-rgb),0.15)",
           }}
         >
           {isHovering ? "release" : isDragging ? "drop here" : "drag here"}

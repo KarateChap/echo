@@ -250,11 +250,11 @@ function TxCard({ tx, prices, currency }: { tx: any; prices: Record<string, Reco
           </span>
         </div>
         <span className={`shrink-0 glass-badge ${
-          isRefund ? "bg-purple-500/15 text-purple-400 border-purple-500/20" :
+          isRefund ? "bg-primary/15 text-primary-glow border-primary/20" :
           isAwaitingClaim ? "bg-amber-500/15 text-amber-400 border-amber-500/20" :
-          tx.status === "success" ? "bg-green-500/15 text-green-400 border-green-500/20" :
+          tx.status === "success" ? "bg-primary/15 text-primary-glow border-primary/20" :
           tx.status === "failed" ? "bg-red-500/15 text-red-400 border-red-500/20" :
-          tx.status === "submitted" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
+          tx.status === "submitted" ? "bg-primary/15 text-primary-glow border-primary/20" :
           "bg-white/10 text-white/50"
         }`}>
           {isRefund ? "refund" : isAwaitingClaim ? "awaiting claim" : tx.status}

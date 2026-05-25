@@ -216,8 +216,8 @@ export default function Rules() {
                     <span className="font-medium">{rule.recipientName}</span>
                     <div className="flex items-center gap-2">
                       <span className={`glass-badge ${
-                        rule.status === "active" ? "bg-green-500/15 text-green-400 border-green-500/20" :
-                        rule.status === "completed" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
+                        rule.status === "active" ? "bg-primary/15 text-primary-glow border-primary/20" :
+                        rule.status === "completed" ? "bg-primary/15 text-primary-glow border-primary/20" :
                         rule.status === "paused" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
                         rule.status === "pending" ? "bg-orange-500/15 text-orange-400 border-orange-500/20" :
                         rule.status === "awaitingRecipient" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" :
@@ -312,7 +312,7 @@ export default function Rules() {
 
                         {/* Recording UI */}
                         {recordingForRuleId === rule._id ? (
-                          <div className="flex items-center gap-3 rounded-lg border border-purple-500/20 bg-purple-500/10 px-3 py-2">
+                          <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2">
                             <div className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
                             <span className="flex-1 text-xs text-white/70">
                               Recording… {Math.floor(msgRecorder.elapsedMs / 1000)}s
@@ -329,7 +329,7 @@ export default function Rules() {
                         ) : (rule.status === "active" || rule.status === "paused") ? (
                           <button
                             onClick={() => handleStartRecording(rule._id)}
-                            className="flex items-center gap-1.5 rounded-lg border border-purple-500/20 bg-purple-500/10 px-3 py-1.5 text-xs text-purple-300 transition hover:bg-purple-500/20"
+                            className="flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs text-primary-glow transition hover:bg-primary/20"
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
@@ -354,7 +354,7 @@ export default function Rules() {
                           {rule.status === "paused" && (
                             <button
                               onClick={() => resumeRule({ ruleId: rule._id })}
-                              className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-1 text-xs text-green-400 transition hover:bg-green-500/20"
+                              className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-1 text-xs text-primary-glow transition hover:bg-primary/20"
                             >
                               Resume
                             </button>
@@ -389,7 +389,7 @@ export default function Rules() {
                           {rule.status === "paused" && (
                             <button
                               onClick={() => resumeRule({ ruleId: rule._id })}
-                              className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-1 text-xs text-green-400 transition hover:bg-green-500/20"
+                              className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-1 text-xs text-primary-glow transition hover:bg-primary/20"
                             >
                               Resume
                             </button>
@@ -480,7 +480,7 @@ export default function Rules() {
                 : "This action cannot be undone."}
             </p>
             {confirmAction.action === "cancel" && confirmAction.totalFunded && confirmAction.executionCount !== undefined && confirmAction.totalOccurrences && (
-              <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2.5 text-center text-xs text-green-400/80">
+              <div className="rounded-lg bg-primary/10 border border-primary/20 px-4 py-2.5 text-center text-xs text-primary-glow/80">
                 {(() => {
                   const spent = confirmAction.executionCount * confirmAction.amountUsdc;
                   const refund = confirmAction.totalFunded - spent;

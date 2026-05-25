@@ -1,5 +1,7 @@
 import { useRef, useEffect } from "react";
 import { useAudioLevelContext } from "@/lib/AudioLevelContext";
+import { useTheme } from "@/lib/ThemeContext";
+import { darkenRgb } from "@/lib/themes";
 import { isMobile } from "@/lib/isMobile";
 
 /* ── Grid & camera ────────────────────────────────────────── */
@@ -29,11 +31,7 @@ const MOUSE_RADIUS = 220; // px – influence radius around cursor
 const MOUSE_AMP = 40; // extra wave displacement near cursor
 const MOUSE_GLOW = 0.55; // extra alpha near cursor
 
-/* ── Colour palette ───────────────────────────────────────── */
-const COL_DEEP = [20, 15, 80]; // deep indigo at troughs
-const COL_MID = [80, 70, 200]; // mid indigo
-const COL_PEAK = [140, 130, 255]; // bright indigo at peaks
-const COL_GLOW = [180, 140, 255]; // purple glow for highest peaks
+/* ── Colour palette (theme-derived, set inside component) ── */
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
@@ -66,6 +64,21 @@ interface Particle {
 }
 
 export default function ParticleWaveBackground({ lite = false }: { lite?: boolean }) {
+  const { theme } = useTheme();
+  const colorsRef = useRef({
+    deep: darkenRgb(theme.canvasPrimary, 0.15),
+    mid: darkenRgb(theme.canvasPrimary, 0.5),
+    peak: theme.canvasPrimary as number[],
+    glow: theme.canvasGlow as number[],
+  });
+  // Keep colors ref in sync with theme
+  colorsRef.current = {
+    deep: darkenRgb(theme.canvasPrimary, 0.15),
+    mid: darkenRgb(theme.canvasPrimary, 0.5),
+    peak: theme.canvasPrimary as number[],
+    glow: theme.canvasGlow as number[],
+  };
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cols = lite ? Math.round(COLS * 0.5) : COLS;
   const rows = lite ? Math.round(ROWS * 0.5) : ROWS;
@@ -160,6 +173,10 @@ export default function ParticleWaveBackground({ lite = false }: { lite?: boolea
         rafRef.current = requestAnimationFrame(frame);
         return;
       }
+      const COL_DEEP = colorsRef.current.deep;
+      const COL_MID = colorsRef.current.mid;
+      const COL_PEAK = colorsRef.current.peak;
+      const COL_GLOW = colorsRef.current.glow;
 
       // Skip frames to save CPU: mobile skips every other, lite mode skips every 2nd frame always
       frameCount++;

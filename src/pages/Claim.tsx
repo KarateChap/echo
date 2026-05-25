@@ -113,8 +113,8 @@ export default function Claim() {
       <ClaimShell>
         {/* Hero icon */}
         <div className="flex justify-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-indigo-500/20 bg-indigo-500/10">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary-glow">
               <path d="M12 2v6m0 0l3-3m-3 3L9 5" />
               <rect x="3" y="10" width="18" height="12" rx="2" />
               <path d="M12 14v4" />
@@ -164,8 +164,8 @@ export default function Claim() {
     <ClaimShell>
       {/* Success indicator */}
       <div className="flex justify-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full border border-green-500/20 bg-green-500/10">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-400">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-glow">
             <path d="M5 13l4 4L19 7" />
           </svg>
         </div>

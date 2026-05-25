@@ -52,7 +52,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
           <span className="text-[10px] text-white/30">Total Portfolio Value</span>
           <span
             className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium text-white/40 transition-colors hover:text-white/60"
-            style={{ background: "rgba(140, 160, 255, 0.08)" }}
+            style={{ background: "rgba(var(--glass-rgb), 0.08)" }}
           >
             {currency}
             <svg
@@ -73,7 +73,7 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
             className="absolute left-1/2 top-full z-50 mt-2 w-48 -translate-x-1/2 overflow-y-auto rounded-xl border border-white/[0.08] backdrop-blur-xl scrollbar-hide"
             style={{
               background: "rgba(15, 15, 30, 0.92)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(140, 160, 255, 0.06)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(var(--glass-light-rgb), 0.06)",
               maxHeight: 300,
             }}
           >
@@ -90,14 +90,14 @@ export default function PortfolioValueDisplay({ total, currencies, loading }: Pr
                   onClick={() => select(c)}
                   className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors duration-150 hover:bg-white/[0.06]"
                   style={{
-                    background: isActive ? "rgba(99, 102, 241, 0.12)" : undefined,
+                    background: isActive ? "rgba(var(--primary-rgb), 0.12)" : undefined,
                   }}
                 >
                   <div className="flex items-center gap-2.5">
                     <span
                       className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold"
                       style={{
-                        background: isActive ? "rgba(99, 102, 241, 0.3)" : "rgba(140, 160, 255, 0.08)",
+                        background: isActive ? "rgba(var(--primary-rgb), 0.3)" : "rgba(var(--glass-rgb), 0.08)",
                         color: isActive ? "rgba(165, 170, 255, 1)" : "rgba(255,255,255,0.4)",
                       }}
                     >

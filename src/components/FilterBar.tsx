@@ -46,7 +46,7 @@ export function FilterBar({
             onClick={() => onStatusChange(status === "all" ? "" : status)}
             className={`rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize transition ${
               (status === "all" ? activeStatus === "" : activeStatus === status)
-                ? "border-primary bg-primary/30 text-white shadow-[0_0_8px_rgba(99,102,241,0.4)]"
+                ? "border-primary bg-primary/30 text-white shadow-[0_0_8px_rgba(var(--primary-rgb),0.4)]"
                 : "border-white/20 bg-white/10 text-white/80 hover:border-white/30 hover:bg-white/15"
             }`}
           >

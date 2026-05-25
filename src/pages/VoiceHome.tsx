@@ -12,7 +12,8 @@ import DropTargetOverlay from "@/components/DropTargetOverlay";
 import AddTokenModal from "@/components/AddTokenModal";
 import CustomizeTokensModal from "@/components/CustomizeTokensModal";
 import TutorialModal from "@/components/TutorialModal";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, Settings } from "lucide-react";
+import SettingsModal from "@/components/SettingsModal";
 import TokenIcon from "@/components/TokenIcon";
 import { formatSchedule } from "@/lib/formatSchedule";
 import { useUnseenCounts } from "@/lib/useUnseenCounts";
@@ -58,11 +59,11 @@ function StepDot({ active, done }: { active: boolean; done: boolean }) {
         width: active ? 8 : 6,
         height: active ? 8 : 6,
         background: done
-          ? "rgba(99, 102, 241, 0.8)"
+          ? "rgba(var(--primary-rgb), 0.8)"
           : active
-            ? "rgba(99, 102, 241, 1)"
-            : "rgba(140, 160, 255, 0.15)",
-        boxShadow: active ? "0 0 8px rgba(99, 102, 241, 0.6)" : "none",
+            ? "rgba(var(--primary-rgb), 1)"
+            : "rgba(var(--glass-rgb), 0.15)",
+        boxShadow: active ? "0 0 8px rgba(var(--primary-rgb), 0.6)" : "none",
         animation: active ? "drop-target-pulse 1.5s ease-in-out infinite" : "none",
       }}
     />
@@ -127,6 +128,7 @@ export default function VoiceHome() {
   const [showCustomize, setShowCustomize] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // User record (for voice gender preference)
   const dbUser = useQuery(api.users.getByPrivyId, user ? { privyId: user.id } : "skip");
@@ -902,14 +904,14 @@ export default function VoiceHome() {
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col px-4 py-8">
       <header className="flex items-center justify-between gap-3 pb-1">
-        <img src="/echo-icon.png" alt="Echo" className="h-11" style={{ filter: "drop-shadow(0 0 6px rgba(99, 102, 241, 0.4))" }} />
+        <img src="/echo-icon.png" alt="Echo" className="h-11" style={{ filter: "drop-shadow(0 0 6px rgba(var(--primary-rgb), 0.4))" }} />
         <div className="flex items-center gap-3">
           {/* Voice gender segmented toggle */}
           <div
             className="relative flex items-center rounded-full p-0.5"
             style={{
-              background: "rgba(140, 160, 255, 0.08)",
-              border: "1px solid rgba(140, 160, 255, 0.12)",
+              background: "rgba(var(--glass-rgb), 0.08)",
+              border: "1px solid rgba(var(--glass-rgb), 0.12)",
             }}
           >
             {(["female", "male"] as const).map((g) => (
@@ -920,9 +922,9 @@ export default function VoiceHome() {
                 }}
                 className="relative z-10 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-200"
                 style={{
-                  color: voiceGender === g ? "rgba(255,255,255,0.95)" : "rgba(180, 200, 255, 0.45)",
-                  background: voiceGender === g ? "rgba(99, 102, 241, 0.35)" : "transparent",
-                  boxShadow: voiceGender === g ? "0 0 8px rgba(99, 102, 241, 0.25)" : "none",
+                  color: voiceGender === g ? "rgba(255,255,255,0.95)" : "rgba(var(--glass-light-rgb), 0.45)",
+                  background: voiceGender === g ? "rgba(var(--primary-rgb), 0.35)" : "transparent",
+                  boxShadow: voiceGender === g ? "0 0 8px rgba(var(--primary-rgb), 0.25)" : "none",
                 }}
               >
                 <span className="inline-flex items-center" style={{ fontSize: "13px", lineHeight: 1 }}>{g === "female" ? "♀" : "♂"}</span>
@@ -932,6 +934,9 @@ export default function VoiceHome() {
           </div>
           <button onClick={() => setShowTutorial(true)} className="glass-nav p-1" title="How to use Echo">
             <HelpCircle className="h-5 w-5" />
+          </button>
+          <button onClick={() => setShowSettings(true)} className="glass-nav p-1" title="Settings">
+            <Settings className="h-5 w-5" />
           </button>
           <button onClick={logout} className="glass-nav text-xs">Sign out</button>
         </div>
@@ -1004,7 +1009,7 @@ export default function VoiceHome() {
                     className={[
                       "absolute z-10 flex items-center gap-2 rounded-2xl px-3 py-2 transition-all duration-500 ease-out select-none",
                       step === "idle"
-                        ? "border border-indigo-400/15 bg-white/[0.04] backdrop-blur-xl hover:border-indigo-400/30 hover:bg-white/[0.07] active:scale-95 cursor-grab"
+                        ? "border border-primary-glow/15 bg-white/[0.04] backdrop-blur-xl hover:border-primary-glow/30 hover:bg-white/[0.07] active:scale-95 cursor-grab"
                         : "border border-primary/30 bg-primary/10 backdrop-blur-xl pointer-events-none",
                     ].join(" ")}
                     style={{
@@ -1015,7 +1020,7 @@ export default function VoiceHome() {
                       opacity: isBeingDragged ? 0.3 : anotherIsDragging ? 0.3 : 1,
                       scale: isBeingDragged ? "0.9" : undefined,
                       boxShadow: step === "idle" && !isBeingDragged && !anotherIsDragging
-                        ? "0 0 14px rgba(99,102,241,0.1), 0 0 5px rgba(140,160,255,0.08), inset 0 1px 0 rgba(255,255,255,0.06)"
+                        ? "0 0 14px rgba(var(--primary-rgb),0.1), 0 0 5px rgba(var(--glass-rgb),0.08), inset 0 1px 0 rgba(255,255,255,0.06)"
                         : undefined,
                     }}
                     {...(step === "idle" ? drag.bind(token.symbol, i, pos.left, pos.top) : {})}
@@ -1087,7 +1092,7 @@ export default function VoiceHome() {
                     left: drag.ghostPos?.x ?? CONTAINER / 2,
                     top: drag.ghostPos?.y ?? CONTAINER / 2,
                     transform: "translate(-50%, -50%) scale(1.1)",
-                    filter: "drop-shadow(0 4px 16px rgba(99, 102, 241, 0.4))",
+                    filter: "drop-shadow(0 4px 16px rgba(var(--primary-rgb), 0.4))",
                   }}
                 >
                   <TokenIcon icon={draggedTokenInfo.icon} size={20} className="text-lg" />
@@ -1234,9 +1239,9 @@ export default function VoiceHome() {
                       onClick={() => { chatAgent.stopTts(); setStep("chat-listening"); recorder.startRecording(); }}
                       className="ml-2 flex items-center gap-2 rounded-full px-5 py-2 text-sm font-medium transition-all active:scale-95"
                       style={{
-                        background: "rgba(140, 160, 255, 0.1)",
-                        border: "1px solid rgba(140, 160, 255, 0.2)",
-                        color: "rgba(180, 200, 255, 0.8)",
+                        background: "rgba(var(--glass-rgb), 0.1)",
+                        border: "1px solid rgba(var(--glass-rgb), 0.2)",
+                        color: "rgba(var(--glass-light-rgb), 0.8)",
                       }}
                     >
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1324,7 +1329,7 @@ export default function VoiceHome() {
                 )}
                 {trustedRecipient?.contactEmail && !forceAskEmail && (
                   <div className="mt-0.5 flex items-center gap-1.5 text-[12px]">
-                    <span className="truncate text-green-400/70">{trustedRecipient.contactEmail}</span>
+                    <span className="truncate text-primary-glow/70">{trustedRecipient.contactEmail}</span>
                     <button
                       type="button"
                       onClick={() => { setForceAskEmail(true); setShowEmailTyping(true); setStep("ask-email"); }}
@@ -1671,8 +1676,9 @@ export default function VoiceHome() {
       />
 
       <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)} />
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
-      <footer className="space-y-3 pt-3" style={{ borderTop: "1px solid rgba(140, 160, 255, 0.06)" }}>
+      <footer className="space-y-3 pt-3" style={{ borderTop: "1px solid rgba(var(--glass-rgb), 0.06)" }}>
         <div className="flex items-center gap-2 text-[10px] text-white/40">
           <button
             onClick={() => {
@@ -1687,7 +1693,7 @@ export default function VoiceHome() {
           >
             <span className="truncate max-w-[120px]">{wallet?.address ?? "provisioning…"}</span>
             {copiedField === "wallet" ? (
-              <svg className="h-3 w-3 shrink-0 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+              <svg className="h-3 w-3 shrink-0 text-primary-glow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
             ) : (
               <svg className="h-3 w-3 shrink-0 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
             )}
@@ -1705,7 +1711,7 @@ export default function VoiceHome() {
           >
             <span className="truncate max-w-[140px]">{user?.email?.address ?? "—"}</span>
             {copiedField === "email" ? (
-              <svg className="h-3 w-3 shrink-0 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+              <svg className="h-3 w-3 shrink-0 text-primary-glow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
             ) : (
               <svg className="h-3 w-3 shrink-0 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
             )}

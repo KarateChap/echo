@@ -7,8 +7,8 @@ import type { ReactNode } from "react";
 const CUSTOM_ICONS: Record<string, (size: number) => ReactNode> = {
   hexagon: (s) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
-      <path d="M12 2L21.5 7.5V16.5L12 22L2.5 16.5V7.5L12 2Z" fill="#8B5CF6" opacity={0.9} />
-      <path d="M12 6L17 9V15L12 18L7 15V9L12 6Z" fill="#A78BFA" opacity={0.6} />
+      <path d="M12 2L21.5 7.5V16.5L12 22L2.5 16.5V7.5L12 2Z" fill="var(--color-primary)" opacity={0.9} />
+      <path d="M12 6L17 9V15L12 18L7 15V9L12 6Z" fill="var(--color-primary-glow)" opacity={0.6} />
     </svg>
   ),
   shield: (s) => (
@@ -57,8 +57,8 @@ const CUSTOM_ICONS: Record<string, (size: number) => ReactNode> = {
   ),
   bolt: (s) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="10" fill="#6366F1" opacity={0.85} />
-      <path d="M13 2.05V10H20.94C20.45 5.94 17.31 2.73 13.25 2.05H13ZM4.06 14C4.47 17.61 7.32 20.5 11 21V14H4.06Z" fill="#A5B4FC" opacity={0.45} />
+      <circle cx="12" cy="12" r="10" fill="var(--color-primary)" opacity={0.85} />
+      <path d="M13 2.05V10H20.94C20.45 5.94 17.31 2.73 13.25 2.05H13ZM4.06 14C4.47 17.61 7.32 20.5 11 21V14H4.06Z" fill="var(--color-primary-glow)" opacity={0.45} />
     </svg>
   ),
   ring: (s) => (
@@ -70,8 +70,8 @@ const CUSTOM_ICONS: Record<string, (size: number) => ReactNode> = {
   ),
   cross: (s) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
-      <path d="M9 2H15V9H22V15H15V22H9V15H2V9H9V2Z" fill="#A855F7" opacity={0.85} />
-      <path d="M11 5H13V11H19V13H13V19H11V13H5V11H11V5Z" fill="#D8B4FE" opacity={0.45} />
+      <path d="M9 2H15V9H22V15H15V22H9V15H2V9H9V2Z" fill="var(--color-accent)" opacity={0.85} />
+      <path d="M11 5H13V11H19V13H13V19H11V13H5V11H11V5Z" fill="var(--color-accent-glow)" opacity={0.45} />
     </svg>
   ),
   pentagon: (s) => (

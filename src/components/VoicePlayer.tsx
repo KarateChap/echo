@@ -163,21 +163,21 @@ export function VoicePlayer({ url, duration: durationProp }: { url: string; dura
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-150"
         style={{
           background: playing
-            ? "rgba(168,85,247,0.25)"
-            : "linear-gradient(135deg, rgba(99,102,241,0.3), rgba(168,85,247,0.3))",
-          border: "1px solid rgba(168,85,247,0.25)",
+            ? "rgba(var(--accent-rgb),0.25)"
+            : "linear-gradient(135deg, rgba(var(--primary-rgb),0.3), rgba(var(--accent-rgb),0.3))",
+          border: "1px solid rgba(var(--accent-rgb),0.25)",
           boxShadow: playing
-            ? "0 0 12px rgba(168,85,247,0.3)"
-            : "0 0 8px rgba(99,102,241,0.15)",
+            ? "0 0 12px rgba(var(--accent-rgb),0.3)"
+            : "0 0 8px rgba(var(--primary-rgb),0.15)",
         }}
       >
         {playing ? (
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="text-purple-300">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="text-primary-glow">
             <rect x="2" y="2" width="3" height="8" rx="0.5" />
             <rect x="7" y="2" width="3" height="8" rx="0.5" />
           </svg>
         ) : (
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="text-purple-300">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="text-primary-glow">
             <path d="M3 1.5v9l7.5-4.5L3 1.5z" />
           </svg>
         )}
@@ -203,9 +203,9 @@ export function VoicePlayer({ url, duration: durationProp }: { url: string; dura
                 borderRadius: 1.5,
                 height: `${amp * 100}%`,
                 background: filled
-                  ? "linear-gradient(180deg, #a855f7, #6366f1)"
+                  ? "linear-gradient(180deg, var(--color-accent), var(--color-primary))"
                   : "rgba(255, 255, 255, 0.1)",
-                boxShadow: filled ? "0 0 4px rgba(168,85,247,0.25)" : "none",
+                boxShadow: filled ? "0 0 4px rgba(var(--accent-rgb),0.25)" : "none",
               }}
             />
           );

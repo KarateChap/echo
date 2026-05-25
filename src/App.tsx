@@ -14,6 +14,7 @@ import TransactionNotifier from "@/components/TransactionNotifier";
 import ParticleWaveBackground from "@/components/ParticleWaveBackground";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { AudioLevelProvider } from "@/lib/AudioLevelContext";
+import { ThemeProvider } from "@/lib/ThemeContext";
 
 function DesktopDisclaimer() {
   const [open, setOpen] = useState(() => {
@@ -41,7 +42,7 @@ function DesktopDisclaimer() {
         </p>
         <button
           onClick={dismiss}
-          className="mt-2 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-500"
+          className="mt-2 w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-glow"
         >
           Got it
         </button>
@@ -117,15 +118,17 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Showcase />} />
-      <Route path="/login" element={<Landing />} />
-      <Route path="/app" element={<RequireAuth><VoiceHome /></RequireAuth>} />
-      <Route path="/app/rules" element={<RequireAuth><Rules /></RequireAuth>} />
-      <Route path="/app/activity" element={<RequireAuth><Activity /></RequireAuth>} />
-      <Route path="/app/recipients" element={<RequireAuth><Recipients /></RequireAuth>} />
-      <Route path="/claim/:token" element={<Claim />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <ThemeProvider>
+      <Routes>
+        <Route path="/" element={<Showcase />} />
+        <Route path="/login" element={<Landing />} />
+        <Route path="/app" element={<RequireAuth><VoiceHome /></RequireAuth>} />
+        <Route path="/app/rules" element={<RequireAuth><Rules /></RequireAuth>} />
+        <Route path="/app/activity" element={<RequireAuth><Activity /></RequireAuth>} />
+        <Route path="/app/recipients" element={<RequireAuth><Recipients /></RequireAuth>} />
+        <Route path="/claim/:token" element={<Claim />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ThemeProvider>
   );
 }

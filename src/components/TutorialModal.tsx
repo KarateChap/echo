@@ -118,9 +118,9 @@ export default function TutorialModal({ open, onClose }: Props) {
           <div className="flex items-center gap-2.5">
             <div
               className="flex h-9 w-9 items-center justify-center rounded-xl"
-              style={{ background: "rgba(99, 102, 241, 0.2)", border: "1px solid rgba(99, 102, 241, 0.25)" }}
+              style={{ background: "rgba(var(--primary-rgb), 0.2)", border: "1px solid rgba(var(--primary-rgb), 0.25)" }}
             >
-              <Icon className="h-[18px] w-[18px] text-indigo-300" />
+              <Icon className="h-[18px] w-[18px] text-primary-glow" />
             </div>
             <h2 className="text-base font-semibold text-white/90">{current.title}</h2>
           </div>
@@ -139,7 +139,7 @@ export default function TutorialModal({ open, onClose }: Props) {
               <div key={i} className="flex gap-3">
                 <span
                   className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[11px] font-bold"
-                  style={{ background: "rgba(168, 85, 247, 0.18)", color: "rgba(196, 132, 252, 0.9)" }}
+                  style={{ background: "rgba(var(--accent-rgb), 0.18)", color: "rgba(var(--accent-glow-rgb), 0.9)" }}
                 >
                   {i + 1}
                 </span>
@@ -154,9 +154,9 @@ export default function TutorialModal({ open, onClose }: Props) {
           {current.examples && (
             <div
               className="mt-4 rounded-xl px-4 py-3"
-              style={{ background: "rgba(99, 102, 241, 0.08)", border: "1px solid rgba(99, 102, 241, 0.12)" }}
+              style={{ background: "rgba(var(--primary-rgb), 0.08)", border: "1px solid rgba(var(--primary-rgb), 0.12)" }}
             >
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-indigo-300/60">Try saying</p>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-primary-glow/60">Try saying</p>
               <div className="space-y-1">
                 {current.examples.map((ex, i) => (
                   <p key={i} className="text-[13px] italic text-white/60">{ex}</p>
@@ -177,7 +177,7 @@ export default function TutorialModal({ open, onClose }: Props) {
                 className="h-1.5 rounded-full transition-all duration-200"
                 style={{
                   width: i === page ? 18 : 6,
-                  background: i === page ? "rgba(99, 102, 241, 0.8)" : "rgba(255, 255, 255, 0.15)",
+                  background: i === page ? "rgba(var(--primary-rgb), 0.8)" : "rgba(255, 255, 255, 0.15)",
                 }}
               />
             ))}

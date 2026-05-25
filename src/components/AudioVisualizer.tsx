@@ -1,5 +1,7 @@
 import { useRef, useEffect, type MutableRefObject } from "react";
 import { isMobile } from "@/lib/isMobile";
+import { useTheme } from "@/lib/ThemeContext";
+import { darkenRgb, lightenRgb, type RGB } from "@/lib/themes";
 
 interface Props {
   levelRef: MutableRefObject<number>;
@@ -18,15 +20,42 @@ const TAU = Math.PI * 2;
 const MAX_DPR = isMobile ? 2 : 3;
 const WAVE_STEPS = isMobile ? 90 : 180;
 
-// On mobile use fewer waves and skip the most complex ones
-const ALL_WAVE_CONFIGS = [
-  { freq: 3.0, ampScale: 1.0, speed: 2.5, phase: 0, color: [255, 255, 255], width: 2.5, glow: 16 },
-  { freq: 4.2, ampScale: 0.8, speed: 2.0, phase: 1.0, color: [180, 220, 255], width: 2.0, glow: 14 },
-  { freq: 5.0, ampScale: 0.65, speed: 3.0, phase: 2.2, color: [140, 130, 255], width: 1.8, glow: 12 },
-  { freq: 2.2, ampScale: 0.9, speed: 1.6, phase: 3.5, color: [180, 140, 255], width: 2.2, glow: 15 },
-  { freq: 6.0, ampScale: 0.45, speed: 3.5, phase: 0.5, color: [100, 140, 255], width: 1.4, glow: 10 },
+// Wave shape configs (colors are applied dynamically from theme)
+const WAVE_SHAPES = [
+  { freq: 3.0, ampScale: 1.0, speed: 2.5, phase: 0, width: 2.5, glow: 16 },
+  { freq: 4.2, ampScale: 0.8, speed: 2.0, phase: 1.0, width: 2.0, glow: 14 },
+  { freq: 5.0, ampScale: 0.65, speed: 3.0, phase: 2.2, width: 1.8, glow: 12 },
+  { freq: 2.2, ampScale: 0.9, speed: 1.6, phase: 3.5, width: 2.2, glow: 15 },
+  { freq: 6.0, ampScale: 0.45, speed: 3.5, phase: 0.5, width: 1.4, glow: 10 },
 ];
-const WAVE_CONFIGS = isMobile ? ALL_WAVE_CONFIGS.slice(0, 3) : ALL_WAVE_CONFIGS;
+const ACTIVE_SHAPES = isMobile ? WAVE_SHAPES.slice(0, 3) : WAVE_SHAPES;
+
+function computeOrbColors(t: { canvasPrimary: RGB; canvasGlow: RGB; canvasBgTint: RGB }) {
+  const p = t.canvasPrimary;
+  return {
+    // Atmosphere
+    atmoInner: darkenRgb(p, 0.45),
+    atmoMid: darkenRgb(p, 0.35),
+    atmoOuter: darkenRgb(p, 0.25),
+    atmoEdge: t.canvasBgTint,
+    // Sphere body (brightest to darkest)
+    s0: p,
+    s1: darkenRgb(p, 0.6),
+    s2: darkenRgb(p, 0.4),
+    s3: darkenRgb(p, 0.2),
+    s4: darkenRgb(p, 0.12),
+    s5: darkenRgb(p, 0.07),
+    // Rim
+    rimBright: lightenRgb(p, 0.5),
+    rimMid: t.canvasGlow,
+    rimFade: darkenRgb(p, 0.5),
+    // Edge + center
+    edge: p,
+    centerBright: lightenRgb(p, 0.7),
+    centerMid: p,
+    centerDim: darkenRgb(p, 0.45),
+  };
+}
 
 export default function AudioVisualizer({
   levelRef,
@@ -39,6 +68,25 @@ export default function AudioVisualizer({
   waiting = false,
   circularWaves = false,
 }: Props) {
+  const { theme } = useTheme();
+
+  // Build wave configs with theme colors
+  const waveColors: RGB[] = [
+    [255, 255, 255],
+    theme.canvasLight,
+    theme.canvasPrimary,
+    theme.canvasGlow,
+    theme.canvasDim,
+  ];
+  const waveConfigsRef = useRef(
+    ACTIVE_SHAPES.map((s, i) => ({ ...s, color: waveColors[i] }))
+  );
+  waveConfigsRef.current = ACTIVE_SHAPES.map((s, i) => ({ ...s, color: waveColors[i] }));
+
+  // Pre-compute sphere/orb derived colors from theme
+  const orbColorsRef = useRef(computeOrbColors(theme));
+  orbColorsRef.current = computeOrbColors(theme);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const smoothLevelRef = useRef(0);
   const timeRef = useRef(0);
@@ -119,13 +167,16 @@ export default function AudioVisualizer({
 
       ctx.clearRect(0, 0, s, s);
 
+      const oc = orbColorsRef.current;
+      const rgb = (c: RGB | number[]) => `${c[0]},${c[1]},${c[2]}`;
+
       // ---- Deep outer atmosphere ----
       const atmoR = orbR * (1.8 + effectLevel * 1.2);
       const atmo = ctx.createRadialGradient(cx, cy, orbR * 0.3, cx, cy, atmoR);
-      atmo.addColorStop(0, `rgba(80, 90, 220, ${0.15 + effectLevel * 0.25})`);
-      atmo.addColorStop(0.3, `rgba(100, 80, 240, ${0.08 + effectLevel * 0.15})`);
-      atmo.addColorStop(0.6, `rgba(60, 50, 180, ${0.04 + effectLevel * 0.08})`);
-      atmo.addColorStop(1, "rgba(8, 12, 24, 0)");
+      atmo.addColorStop(0, `rgba(${rgb(oc.atmoInner)}, ${0.15 + effectLevel * 0.25})`);
+      atmo.addColorStop(0.3, `rgba(${rgb(oc.atmoMid)}, ${0.08 + effectLevel * 0.15})`);
+      atmo.addColorStop(0.6, `rgba(${rgb(oc.atmoOuter)}, ${0.04 + effectLevel * 0.08})`);
+      atmo.addColorStop(1, `rgba(${rgb(oc.atmoEdge)}, 0)`);
       ctx.fillStyle = atmo;
       ctx.fillRect(0, 0, s, s);
 
@@ -134,12 +185,12 @@ export default function AudioVisualizer({
         cx - orbR * 0.3, cy - orbR * 0.3, orbR * 0.05,
         cx, cy, orbR,
       );
-      sphereGrad.addColorStop(0, `rgba(130, 140, 255, ${0.4 + effectLevel * 0.2})`);
-      sphereGrad.addColorStop(0.2, `rgba(90, 100, 240, ${0.3 + effectLevel * 0.15})`);
-      sphereGrad.addColorStop(0.45, `rgba(60, 55, 200, ${0.25 + effectLevel * 0.1})`);
-      sphereGrad.addColorStop(0.7, `rgba(30, 25, 130, ${0.2 + effectLevel * 0.08})`);
-      sphereGrad.addColorStop(0.9, `rgba(15, 12, 80, ${0.18 + effectLevel * 0.05})`);
-      sphereGrad.addColorStop(1, "rgba(8, 6, 40, 0.12)");
+      sphereGrad.addColorStop(0, `rgba(${rgb(oc.s0)}, ${0.4 + effectLevel * 0.2})`);
+      sphereGrad.addColorStop(0.2, `rgba(${rgb(oc.s1)}, ${0.3 + effectLevel * 0.15})`);
+      sphereGrad.addColorStop(0.45, `rgba(${rgb(oc.s2)}, ${0.25 + effectLevel * 0.1})`);
+      sphereGrad.addColorStop(0.7, `rgba(${rgb(oc.s3)}, ${0.2 + effectLevel * 0.08})`);
+      sphereGrad.addColorStop(0.9, `rgba(${rgb(oc.s4)}, ${0.18 + effectLevel * 0.05})`);
+      sphereGrad.addColorStop(1, `rgba(${rgb(oc.s5)}, 0.12)`);
 
       ctx.beginPath();
       ctx.arc(cx, cy, orbR, 0, TAU);
@@ -156,9 +207,9 @@ export default function AudioVisualizer({
         cx - orbR * 0.45, cy - orbR * 0.45, orbR * 0.05,
         cx - orbR * 0.15, cy - orbR * 0.15, orbR * 0.95,
       );
-      rimGrad.addColorStop(0, `rgba(200, 210, 255, ${0.3 + effectLevel * 0.12})`);
-      rimGrad.addColorStop(0.2, `rgba(160, 170, 255, ${0.12 + effectLevel * 0.05})`);
-      rimGrad.addColorStop(0.5, "rgba(100, 110, 200, 0.04)");
+      rimGrad.addColorStop(0, `rgba(${rgb(oc.rimBright)}, ${0.3 + effectLevel * 0.12})`);
+      rimGrad.addColorStop(0.2, `rgba(${rgb(oc.rimMid)}, ${0.12 + effectLevel * 0.05})`);
+      rimGrad.addColorStop(0.5, `rgba(${rgb(oc.rimFade)}, 0.04)`);
       rimGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
       ctx.fillStyle = rimGrad;
       ctx.fillRect(0, 0, s, s);
@@ -167,7 +218,7 @@ export default function AudioVisualizer({
       // ---- Sphere edge ring ----
       ctx.beginPath();
       ctx.arc(cx, cy, orbR, 0, TAU);
-      ctx.strokeStyle = `rgba(120, 130, 255, ${0.15 + effectLevel * 0.2})`;
+      ctx.strokeStyle = `rgba(${rgb(oc.edge)}, ${0.15 + effectLevel * 0.2})`;
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
@@ -181,7 +232,7 @@ export default function AudioVisualizer({
 
       const steps = WAVE_STEPS;
 
-      for (const wave of WAVE_CONFIGS) {
+      for (const wave of waveConfigsRef.current) {
         const baseAmp = isWaiting ? orbR * 0.04 : orbR * 0.02;
         const ampScale = circularRef.current ? 0.04 : 0.4;
         const reactiveAmp = orbR * ampScale * effectLevel * wave.ampScale;
@@ -256,9 +307,9 @@ export default function AudioVisualizer({
 
       // ---- Center glow ----
       const centerGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbR * 0.55);
-      centerGlow.addColorStop(0, `rgba(220, 220, 255, ${0.06 + effectLevel * 0.15})`);
-      centerGlow.addColorStop(0.3, `rgba(140, 140, 255, ${0.03 + effectLevel * 0.08})`);
-      centerGlow.addColorStop(0.7, `rgba(80, 80, 200, ${0.01 + effectLevel * 0.03})`);
+      centerGlow.addColorStop(0, `rgba(${rgb(oc.centerBright)}, ${0.06 + effectLevel * 0.15})`);
+      centerGlow.addColorStop(0.3, `rgba(${rgb(oc.centerMid)}, ${0.03 + effectLevel * 0.08})`);
+      centerGlow.addColorStop(0.7, `rgba(${rgb(oc.centerDim)}, ${0.01 + effectLevel * 0.03})`);
       centerGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
       ctx.fillStyle = centerGlow;
       ctx.fillRect(0, 0, s, s);

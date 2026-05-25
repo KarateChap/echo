@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import AudioVisualizer from "@/components/AudioVisualizer";
 import ParticleWaveBackground from "@/components/ParticleWaveBackground";
+import BackgroundLogoVisualizer from "@/components/BackgroundLogoVisualizer";
 import { AudioLevelProvider, useAudioLevelContext } from "@/lib/AudioLevelContext";
 import { useAudioAnalyser } from "@/lib/useAudioAnalyser";
 
@@ -12,7 +13,7 @@ const FloatingParticles = memo(function FloatingParticles() {
       w: 2 + Math.random() * 2,
       left: Math.random() * 100,
       top: Math.random() * 100,
-      bg: i % 2 === 0 ? "rgba(99, 102, 241, 0.3)" : "rgba(168, 85, 247, 0.25)",
+      bg: i % 2 === 0 ? "rgba(var(--primary-rgb), 0.3)" : "rgba(var(--accent-rgb), 0.25)",
       delay: Math.random() * 6,
       duration: 8 + Math.random() * 6,
     })),
@@ -58,10 +59,10 @@ function useOrbSize() {
 
 /* ── Gradient heading style matching the orb aesthetic ── */
 const HEADING_STYLE: React.CSSProperties = {
-  background: "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(160,150,255,0.7) 100%)",
+  background: "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(var(--glass-light-rgb),0.7) 100%)",
   WebkitBackgroundClip: "text",
   WebkitTextFillColor: "transparent",
-  filter: "drop-shadow(0 0 18px rgba(99, 102, 241, 0.35)) drop-shadow(0 0 40px rgba(168, 85, 247, 0.2))",
+  filter: "drop-shadow(0 0 18px rgba(var(--primary-rgb), 0.35)) drop-shadow(0 0 40px rgba(var(--accent-rgb), 0.2))",
 };
 
 /* ── Static orb: lightweight CSS-only version for inactive sections ── */
@@ -73,18 +74,18 @@ function StaticOrb({ size }: { size: number }) {
         style={{
           background: `
             radial-gradient(circle at 35% 35%,
-              rgba(130, 140, 255, 0.4) 0%,
-              rgba(90, 100, 240, 0.3) 20%,
-              rgba(60, 55, 200, 0.25) 45%,
-              rgba(30, 25, 130, 0.2) 70%,
-              rgba(15, 12, 80, 0.18) 90%,
-              rgba(8, 6, 40, 0.12) 100%
+              rgba(var(--glass-rgb), 0.4) 0%,
+              rgba(var(--primary-rgb), 0.3) 20%,
+              rgba(var(--deep-rgb), 0.25) 45%,
+              rgba(var(--deep-rgb), 0.2) 70%,
+              rgba(var(--deep-rgb), 0.18) 90%,
+              rgba(var(--deep-rgb), 0.12) 100%
             )`,
           boxShadow: `
-            0 0 80px rgba(80, 90, 220, 0.15),
-            0 0 160px rgba(60, 50, 180, 0.08),
-            inset 0 0 60px rgba(100, 110, 200, 0.06)`,
-          border: "1px solid rgba(120, 130, 255, 0.15)",
+            0 0 80px rgba(var(--deep-rgb), 0.15),
+            0 0 160px rgba(var(--deep-rgb), 0.08),
+            inset 0 0 60px rgba(var(--deep-rgb), 0.06)`,
+          border: "1px solid rgba(var(--glass-rgb), 0.15)",
         }}
       />
     </div>
@@ -229,6 +230,7 @@ function ShowcaseInner() {
         <ParticleWaveBackground lite />
       </div>
       <FloatingParticles />
+      <BackgroundLogoVisualizer />
 
       {/* Skip button */}
       <button onClick={finish} className="fixed right-5 top-5 z-50 text-xs font-medium text-white/30 transition hover:text-white/70">
@@ -246,7 +248,7 @@ function ShowcaseInner() {
           <div className={`relative flex items-center justify-center transition-all duration-700 ${visible.has(0) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
             <SectionOrb isActive={active === 0} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
             <div className={`absolute inset-0 flex flex-col items-center justify-center ${isSm ? "gap-2 px-6" : "gap-3 px-8"}`}>
-              <img src="/echo-icon.png" alt="Echo" className={`${logoCls} drop-shadow-[0_0_24px_rgba(99,102,241,0.5)]`} />
+              <img src="/echo-icon.png" alt="Echo" className={`${logoCls} drop-shadow-[0_0_24px_rgba(var(--primary-rgb),0.5)]`} />
               <p className={`text-center ${isSm ? "text-xs" : "text-sm"} font-medium tracking-wider uppercase text-white/40`}>on</p>
               <img src="/morph-logo.png" alt="Morph" className={`${isSm ? "h-8" : "h-14"} object-contain`} />
             </div>
@@ -264,8 +266,8 @@ function ShowcaseInner() {
           <div className={`relative flex items-center justify-center transition-all duration-700 ${visible.has(1) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
             <SectionOrb isActive={active === 1} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
             <div className={`absolute inset-0 flex flex-col items-center justify-center ${gapCls} px-6`}>
-              <div className={`flex ${iconBox} items-center justify-center rounded-full`} style={{ background: "rgba(99, 102, 241, 0.12)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
-                <svg className={`${iconSvg} text-indigo-400`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <div className={`flex ${iconBox} items-center justify-center rounded-full`} style={{ background: "rgba(var(--primary-rgb), 0.12)", border: "1px solid rgba(var(--primary-rgb), 0.2)" }}>
+                <svg className={`${iconSvg} text-primary-glow`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                   <line x1="12" y1="19" x2="12" y2="22" />
@@ -288,8 +290,8 @@ function ShowcaseInner() {
                 <h2 className={`${headingCls} text-center`} style={HEADING_STYLE}>One voice.<br />Every payment.</h2>
                 <div className={`grid grid-cols-2 ${isSm ? "gap-1" : "gap-2.5"} mt-1`}>
                   {PAYMENT_TYPES.map(({ icon, label }) => (
-                    <div key={label} className={`flex flex-col items-center ${isSm ? "gap-0.5 rounded-md px-2 py-1.5" : "gap-1.5 rounded-xl px-4 py-3"}`} style={{ background: "rgba(140, 160, 255, 0.06)", border: "1px solid rgba(140, 160, 255, 0.08)" }}>
-                      <svg className={`${isSm ? "h-3 w-3" : "h-4 w-4"} text-purple-400/80`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <div key={label} className={`flex flex-col items-center ${isSm ? "gap-0.5 rounded-md px-2 py-1.5" : "gap-1.5 rounded-xl px-4 py-3"}`} style={{ background: "rgba(var(--glass-rgb), 0.06)", border: "1px solid rgba(var(--glass-rgb), 0.08)" }}>
+                      <svg className={`${isSm ? "h-3 w-3" : "h-4 w-4"} text-primary-glow/80`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d={icon} />
                       </svg>
                       <span className={`${isSm ? "text-[8px]" : "text-[11px]"} font-medium text-white/55`}>{label}</span>
@@ -317,8 +319,8 @@ function ShowcaseInner() {
             <div className="relative flex items-center justify-center">
               <SectionOrb isActive={active === 3} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
               <div className={`absolute inset-0 flex flex-col items-center justify-center ${gapCls} px-6`}>
-                <div className={`flex ${iconBox} items-center justify-center rounded-full`} style={{ background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.18)" }}>
-                  <svg className={`${iconSvg} text-purple-400`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <div className={`flex ${iconBox} items-center justify-center rounded-full`} style={{ background: "rgba(var(--accent-rgb), 0.1)", border: "1px solid rgba(var(--accent-rgb), 0.18)" }}>
+                  <svg className={`${iconSvg} text-primary-glow`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 18V5l12-2v13" />
                     <circle cx="6" cy="18" r="3" />
                     <circle cx="18" cy="16" r="3" />
@@ -348,7 +350,7 @@ function ShowcaseInner() {
           <div className={`relative flex items-center justify-center transition-all duration-700 ${visible.has(4) ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}>
             <SectionOrb isActive={active === 4} micLevelRef={micLevelRef} hasMic={hasMic} size={orbSize} />
             <div className={`absolute inset-0 flex flex-col items-center justify-center ${gapCls} px-6`}>
-              <img src="/echo-icon.png" alt="Echo" className={`${logoSmCls} drop-shadow-[0_0_20px_rgba(99,102,241,0.4)]`} />
+              <img src="/echo-icon.png" alt="Echo" className={`${logoSmCls} drop-shadow-[0_0_20px_rgba(var(--primary-rgb),0.4)]`} />
               <h2 className={isSm ? "text-2xl font-semibold" : "text-5xl font-semibold sm:text-6xl"} style={HEADING_STYLE}>Ready?</h2>
               <button onClick={finish} className={`btn-accent rounded-2xl ${isSm ? "px-6 py-2 text-xs" : "mt-1 px-10 py-3.5 text-base"} tracking-wide`}>
                 Get Started
@@ -372,7 +374,7 @@ function ShowcaseInner() {
             style={{
               width: i === active ? 24 : 8,
               background: i === active
-                ? "linear-gradient(135deg, rgba(99,102,241,0.9), rgba(168,85,247,0.9))"
+                ? "linear-gradient(135deg, rgba(var(--primary-rgb),0.9), rgba(var(--accent-rgb),0.9))"
                 : "rgba(255, 255, 255, 0.15)",
             }}
             aria-label={`Go to section ${i + 1}`}

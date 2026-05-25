@@ -42,11 +42,11 @@ const ACCENT = {
     arrow: "\u2709",
   },
   sent: {
-    border: "rgba(124, 58, 237, 0.15)",
-    glow: "rgba(124, 58, 237, 0.08)",
-    icon: "rgba(124, 58, 237, 0.12)",
-    iconBorder: "rgba(124, 58, 237, 0.25)",
-    text: "#a78bfa",
+    border: "rgba(var(--deep-rgb), 0.15)",
+    glow: "rgba(var(--deep-rgb), 0.08)",
+    icon: "rgba(var(--deep-rgb), 0.12)",
+    iconBorder: "rgba(var(--deep-rgb), 0.25)",
+    text: "var(--color-primary-glow)",
     arrow: "\u2191",
   },
   withdrawn: {

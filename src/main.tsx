@@ -21,7 +21,7 @@ createRoot(document.getElementById("root")!).render(
         loginMethods: ["email"],
         appearance: {
           theme: "dark",
-          accentColor: "#7c3aed",
+          accentColor: "#16a34a",
           logo: undefined,
         },
         embeddedWallets: {

@@ -102,10 +102,10 @@ export default function FxRateTicker({ prices, loading }: Props) {
     <div
       className="ticker-mask mt-4 -mx-4 overflow-hidden"
       style={{
-        borderTop: "1px solid rgba(140, 160, 255, 0.06)",
-        borderBottom: "1px solid rgba(140, 160, 255, 0.06)",
+        borderTop: "1px solid rgba(var(--glass-rgb), 0.06)",
+        borderBottom: "1px solid rgba(var(--glass-rgb), 0.06)",
         background:
-          "linear-gradient(90deg, rgba(99, 102, 241, 0.03) 0%, rgba(140, 160, 255, 0.05) 50%, rgba(99, 102, 241, 0.03) 100%)",
+          "linear-gradient(90deg, rgba(var(--primary-rgb), 0.03) 0%, rgba(var(--glass-rgb), 0.05) 50%, rgba(var(--primary-rgb), 0.03) 100%)",
         padding: "8px 0",
       }}
     >
@@ -115,8 +115,8 @@ export default function FxRateTicker({ prices, loading }: Props) {
             key={`${item.code}-${i}`}
             className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 transition-colors duration-200"
             style={{
-              background: "rgba(140, 160, 255, 0.05)",
-              border: "1px solid rgba(140, 160, 255, 0.07)",
+              background: "rgba(var(--glass-rgb), 0.05)",
+              border: "1px solid rgba(var(--glass-rgb), 0.07)",
               backdropFilter: "blur(8px)",
             }}
           >
@@ -124,7 +124,7 @@ export default function FxRateTicker({ prices, loading }: Props) {
             <div className="flex items-baseline gap-1.5">
               <span
                 className="text-[10px] font-medium uppercase tracking-wide"
-                style={{ color: "rgba(140, 160, 255, 0.45)" }}
+                style={{ color: "rgba(var(--glass-rgb), 0.45)" }}
               >
                 {item.label}
               </span>

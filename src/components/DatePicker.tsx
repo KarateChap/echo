@@ -141,7 +141,7 @@ export function DatePicker({ value, onChange, placeholder = "Date", rangeStart, 
       "relative flex items-center justify-center w-8 h-8 text-xs rounded-lg cursor-pointer transition-all duration-150 ";
 
     if (selected) {
-      cls += "bg-gradient-to-br from-primary to-accent text-white font-semibold shadow-[0_0_12px_rgba(99,102,241,0.4)] ";
+      cls += "bg-gradient-to-br from-primary to-accent text-white font-semibold shadow-[0_0_12px_rgba(var(--primary-rgb),0.4)] ";
     } else if (inRange) {
       cls += "bg-primary/15 text-white/80 rounded-none ";
       if (isRangeStart) cls += "rounded-l-lg ";

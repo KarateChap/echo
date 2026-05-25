@@ -728,8 +728,8 @@ export default function WithdrawModal({ open, onClose, wallet, balances, prices,
         {/* Step 8: Success */}
         {step === "success" && (
           <div className="flex flex-col items-center gap-4 py-6">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-green-500/15 border border-green-500/20">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-400">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/15 border border-primary/20">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary-glow">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>

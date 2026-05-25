@@ -112,7 +112,7 @@ export default function Recipients() {
         <h1 className="text-xl font-semibold">Recipients</h1>
         <button
           onClick={openAdd}
-          className="ml-auto rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-purple-500 active:scale-95"
+          className="ml-auto rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition hover:bg-primary-glow active:scale-95"
         >
           + Add
         </button>
@@ -125,7 +125,7 @@ export default function Recipients() {
           <p className="text-sm text-white/50">No recipients yet.</p>
           <button
             onClick={openAdd}
-            className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-500"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-glow"
           >
             Add your first recipient
           </button>
@@ -150,7 +150,7 @@ export default function Recipients() {
           </div>
 
           <div
-            className="min-h-0 flex-1 overflow-y-auto"
+            className="scrollbar-thin relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
             style={{
               maskImage:
                 "linear-gradient(to bottom, transparent 0%, black 2%, black 95%, transparent 100%)",
@@ -244,7 +244,7 @@ export default function Recipients() {
               <button
                 onClick={handleSave}
                 disabled={saving || !form.relationship.trim()}
-                className="flex-1 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-purple-500 disabled:opacity-40"
+                className="flex-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-glow disabled:opacity-40"
               >
                 {saving ? "Saving…" : editingId ? "Save Changes" : "Add Recipient"}
               </button>

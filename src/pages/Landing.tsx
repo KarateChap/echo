@@ -105,7 +105,7 @@ export default function Landing() {
           {/* Glow behind card */}
           <div
             className="pointer-events-none absolute inset-0 -z-10 mx-auto h-64 w-64 rounded-full opacity-30 blur-[80px]"
-            style={{ background: "radial-gradient(circle, #6366f1 0%, #a855f7 50%, transparent 70%)" }}
+            style={{ background: "radial-gradient(circle, var(--color-primary) 0%, var(--color-accent) 50%, transparent 70%)" }}
           />
 
           <div className="glass-card relative space-y-7 px-5 py-8 sm:px-8 text-center">
@@ -113,7 +113,7 @@ export default function Landing() {
             <div className="flex justify-center">
               <span
                 className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1 text-[10px] font-medium uppercase tracking-widest text-white/50"
-                style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15))" }}
+                style={{ background: "linear-gradient(135deg, rgba(var(--primary-rgb),0.15), rgba(var(--accent-rgb),0.15))" }}
               >
                 <svg className="h-3 w-3 text-primary/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -125,7 +125,7 @@ export default function Landing() {
             </div>
 
             {/* Echo icon */}
-            <img src="/echo-icon.png" alt="Echo" className="mx-auto h-20" style={{ filter: "drop-shadow(0 0 8px rgba(99, 102, 241, 0.4))" }} />
+            <img src="/echo-icon.png" alt="Echo" className="mx-auto h-20" style={{ filter: "drop-shadow(0 0 8px rgba(var(--primary-rgb), 0.4))" }} />
 
             {/* Branding */}
             <div className="space-y-2">
