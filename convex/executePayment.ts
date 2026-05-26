@@ -1,6 +1,63 @@
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { ActionCtx } from "./_generated/server";
+
+const MAX_NONCE_RETRIES = 3;
+
+/**
+ * Send a transaction with an explicit nonce reserved from the DB.
+ * Retries on nonce errors by re-syncing from chain.
+ */
+async function sendWithNonce(
+  ctx: ActionCtx,
+  client: any,
+  walletAddress: string,
+  txParams: Record<string, any>,
+): Promise<`0x${string}`> {
+  for (let attempt = 0; attempt < MAX_NONCE_RETRIES; attempt++) {
+    let nonce: number;
+    try {
+      nonce = await ctx.runMutation(internal.nonce.reserveNonce, {
+        walletAddress,
+      });
+    } catch (e: any) {
+      if (e.message?.includes("NONCE_NOT_INITIALIZED")) {
+        await ctx.runAction(internal.nonce.syncFromChain, { walletAddress });
+        nonce = await ctx.runMutation(internal.nonce.reserveNonce, {
+          walletAddress,
+        });
+      } else {
+        throw e;
+      }
+    }
+
+    try {
+      const hash = await client.sendTransaction({
+        ...txParams,
+        nonce,
+      });
+      return hash;
+    } catch (e: any) {
+      const msg = (e.message ?? "").toLowerCase();
+      const isNonceError =
+        msg.includes("nonce too low") ||
+        msg.includes("already known") ||
+        msg.includes("replacement transaction underpriced") ||
+        msg.includes("nonce has already been used");
+
+      if (isNonceError && attempt < MAX_NONCE_RETRIES - 1) {
+        console.warn(
+          `[sendWithNonce] Nonce error (attempt ${attempt + 1}/${MAX_NONCE_RETRIES}), resyncing...`,
+        );
+        await ctx.runAction(internal.nonce.syncFromChain, { walletAddress });
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error("sendWithNonce: max retries exceeded");
+}
 
 export const executePayment = internalAction({
   args: {
@@ -163,15 +220,15 @@ export const executePayment = internalAction({
           ],
         });
 
-        txHash = await client.sendTransaction({
-          to: rule.ownerWalletAddress as `0x${string}`, // user's EOA with delegated code
+        txHash = await sendWithNonce(ctx, client, account.address, {
+          to: rule.ownerWalletAddress as `0x${string}`,
           data,
           chain: morphHoodi,
         });
       } else if (token === "ETH") {
         // Legacy: Native ETH transfer from agent wallet
         const value = parseEther(rule.amountUsdc.toString());
-        txHash = await client.sendTransaction({
+        txHash = await sendWithNonce(ctx, client, account.address, {
           to: rule.recipientWalletAddress as `0x${string}`,
           value,
           chain: morphHoodi,
@@ -197,7 +254,7 @@ export const executePayment = internalAction({
           args: [rule.recipientWalletAddress as `0x${string}`, amount],
         });
 
-        txHash = await client.sendTransaction({
+        txHash = await sendWithNonce(ctx, client, account.address, {
           to: tokenInfo.address as `0x${string}`,
           data,
           chain: morphHoodi,
@@ -359,7 +416,7 @@ export const executeRefund = internalAction({
 
       if (token === "ETH") {
         const value = parseEther(refundAmount.toString());
-        txHash = await client.sendTransaction({
+        txHash = await sendWithNonce(ctx, client, account.address, {
           to: owner.walletAddress as `0x${string}`,
           value,
           chain: morphHoodi,
@@ -387,7 +444,7 @@ export const executeRefund = internalAction({
           args: [owner.walletAddress as `0x${string}`, amount],
         });
 
-        txHash = await client.sendTransaction({
+        txHash = await sendWithNonce(ctx, client, account.address, {
           to: tokenInfo.address as `0x${string}`,
           data,
           chain: morphHoodi,

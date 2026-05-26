@@ -306,12 +306,60 @@ export default function VoiceHome() {
         setStep("error");
         return;
       }
+      // --- Insufficient balance check (mirrors drag-flow check) ---
+      const intentToken = token ?? intent.token ?? "USDC";
+      if (intentToken && balances.length > 0) {
+        const perPaymentAmount = intent.amount ?? intent.amountUsdc ?? 0;
+        const totalOccurrences = intent.totalOccurrences ?? 1;
+        const totalRequired = perPaymentAmount * totalOccurrences;
+
+        const tokenBalance = balances.find(
+          (b) => b.token.symbol.toUpperCase() === intentToken.toUpperCase()
+        );
+        const available = tokenBalance ? parseFloat(tokenBalance.formatted) : 0;
+
+        if (totalRequired > available) {
+          const shortfall = totalRequired - available;
+          const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          setErrorMessage(
+            `Insufficient ${intentToken} balance. You need ${fmt(totalRequired)} ${intentToken} but only have ${fmt(available)}. Short by ${fmt(shortfall)} ${intentToken}.`
+          );
+          setStep("error");
+
+          // Speak the error via TTS (fire-and-forget)
+          if (convexSiteUrl) {
+            fetch(`${convexSiteUrl}/api/tts`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                text: `Sorry, you don't have enough ${intentToken}. You need ${totalRequired} but only have ${available}.`,
+                voice: voiceGender,
+              }),
+            })
+              .then(async (res) => {
+                if (!res.ok) return;
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.onended = () => URL.revokeObjectURL(url);
+                audio.play().catch(() => {});
+              })
+              .catch(() => {});
+          }
+          return;
+        }
+      }
       try {
         const name = intent.recipient?.name ?? "recipient";
         const amount = (intent.amount ?? intent.amountUsdc)?.toLocaleString() ?? "?";
-        const tok = token ?? intent.token ?? "USDC";
-        // Use AI-generated readback (in user's language) if available, else fallback to Taglish
-        const readbackText = aiReadbackText || `Sige. Magpapadala ng ${amount} ${tok} kay ${name}. I-confirm mo lang para mag-proceed.`;
+        // Use AI-generated readback (in user's language) if available, else fallback
+        let readbackText = aiReadbackText || `Sending ${amount} ${intentToken} to ${name}. Please confirm to proceed.`;
+        // Ensure readback mentions the correct token (not a hallucinated one)
+        if (intentToken) {
+          readbackText = readbackText.replace(/\b(USDC|USDT|ETH|HTT)\b/g, (match) =>
+            match !== intentToken ? intentToken : match
+          );
+        }
         const sid = await createFromChatIntent({
           privyId: user.id,
           intent: JSON.stringify(intent),
@@ -328,13 +376,13 @@ export default function VoiceHome() {
         setTtsAudioEl(null);
         setTtsHasPlayed(false);
         setSessionId(sid);
-        setSelectedToken(tok);
+        setSelectedToken(intentToken);
         setStep("confirm");
       } catch {
         setErrorMessage("Failed to process payment command.");
         setStep("error");
       }
-    }, [user, createFromChatIntent]),
+    }, [user, createFromChatIntent, balances, convexSiteUrl, voiceGender]),
     onWithdraw: useCallback(() => {
       chatAgentResetRef.current();
       resetFlow();
@@ -414,8 +462,12 @@ export default function VoiceHome() {
   // Primary: fetch streaming ElevenLabs TTS as soon as readbackText is available
   useEffect(() => {
     const text = session?.readbackText;
-    if (!text || text === hasPlayedRef.current || !convexSiteUrl) return;
-    hasPlayedRef.current = text;
+    if (!text || !convexSiteUrl) return;
+    if (session?.status !== "ready") return;
+    if (step !== "confirm") return;
+    // Guard: only play TTS once per session (not per text content)
+    if (hasPlayedRef.current === sessionId) return;
+    hasPlayedRef.current = sessionId;
     elevenLabsPlayedRef.current = true;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; setTtsAudioEl(null); }
 
@@ -436,12 +488,13 @@ export default function VoiceHome() {
     })();
 
     return () => { cancelled = true; stopReadbackStream(); };
-  }, [session?.readbackText, convexSiteUrl, voiceGender, playReadbackStream, stopReadbackStream]);
+  }, [session?.readbackText, session?.status, step, convexSiteUrl, voiceGender, sessionId, playReadbackStream, stopReadbackStream]);
 
   // Fallback: if ElevenLabs TTS didn't play and stored readbackUrl becomes available, use it
   useEffect(() => {
     const url = session?.readbackUrl;
     if (!url || elevenLabsPlayedRef.current) return;
+    if (step !== "confirm") return;
     if (url === hasPlayedFallbackRef.current) return;
     // Only play if we haven't already played via ElevenLabs
     if (audioRef.current && audioRef.current.currentTime > 0) return;
@@ -461,7 +514,7 @@ export default function VoiceHome() {
       await iosSession.forceSpeakerRoute();
       audio.play().catch(() => { setTtsHasPlayed(true); });
     })();
-  }, [session?.readbackUrl, iosSession.forceSpeakerRoute, iosSession.blessedAudio]);
+  }, [session?.readbackUrl, step, iosSession.forceSpeakerRoute, iosSession.blessedAudio]);
 
   // Safety: unlock Approve button after 5s if TTS silently failed
   useEffect(() => {
@@ -493,6 +546,42 @@ export default function VoiceHome() {
           setStep("error");
           return;
         }
+        // --- Insufficient balance check ---
+        const intentToken = selectedToken ?? intent.token;
+        if (intentToken && balances.length > 0) {
+          const perPaymentAmount = intent.amount ?? intent.amountUsdc ?? 0;
+          const totalOccurrences = intent.totalOccurrences ?? 1;
+          const totalRequired = perPaymentAmount * totalOccurrences;
+
+          const tokenBalance = balances.find(
+            (b) => b.token.symbol.toUpperCase() === intentToken.toUpperCase()
+          );
+          const available = tokenBalance ? parseFloat(tokenBalance.formatted) : 0;
+
+          if (totalRequired > available) {
+            const shortfall = totalRequired - available;
+            const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            setErrorMessage(
+              `Insufficient ${intentToken} balance. You need ${fmt(totalRequired)} ${intentToken} but only have ${fmt(available)}. Short by ${fmt(shortfall)} ${intentToken}.`
+            );
+            setStep("error");
+
+            // Speak the error via TTS (fire-and-forget)
+            if (convexSiteUrl) {
+              fetch(`${convexSiteUrl}/api/tts`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: `Sorry, you don't have enough ${intentToken}. You need ${totalRequired} but only have ${available}.`,
+                  voice: voiceGender,
+                }),
+              })
+                .then((res) => { if (res.ok) playReadbackStream(res); })
+                .catch(() => {});
+            }
+            return;
+          }
+        }
       } catch {
         setErrorMessage("Failed to parse your instruction. Please try again.");
         setStep("error");
@@ -500,7 +589,7 @@ export default function VoiceHome() {
       }
       setStep("confirm");
     }
-  }, [session?.status, session?.intent, step]);
+  }, [session?.status, session?.intent, step, balances, selectedToken, convexSiteUrl, voiceGender, playReadbackStream]);
 
   const handleTokenTap = useCallback(async (symbol: string) => {
     if (!user) return;
@@ -615,9 +704,9 @@ export default function VoiceHome() {
     }
     noiseDiscardCountRef.current = 0;
     if ((stepRef.current as FlowStep) !== "chat-processing") setStep("chat-processing");
-    await chatAgent.sendMessage(transcript, balanceSummary);
-    // After sendMessage, TTS plays automatically via the hook
-    setStep("chat-speaking");
+    const shouldResume = await chatAgent.sendMessage(transcript, balanceSummary);
+    // Only transition to chat-speaking if sendMessage played TTS (not for payment_intent/withdraw/exit)
+    if (shouldResume) setStep("chat-speaking");
   };
 
   // Keep auto-stop ref in sync
@@ -750,7 +839,9 @@ export default function VoiceHome() {
         amountUsdc: perPaymentAmount,
         token: resolvedToken,
         schedule: intent.schedule ?? undefined,
-        condition: intent.condition ?? undefined,
+        condition: intent.condition
+          ? { walletBelowUsdc: intent.condition.walletBelowUsdc, topUpUsdc: intent.condition.topUpUsdc, direction: intent.condition.direction }
+          : undefined,
         fundingTxHash,
         expiresAt,
         totalOccurrences: (intent.kind === "conditional" || totalOccurrences > 1) ? totalOccurrences : undefined,
@@ -837,16 +928,12 @@ export default function VoiceHome() {
   // stays alive across all post-recording steps, no restart delays between steps
   useConversationListener({
     enabled: (
-      ["confirm", "ask-voice-msg", "done", "error"].includes(step)
+      ["ask-voice-msg", "done", "error"].includes(step)
       || (step === "ask-email" && !!voiceEmail.parsedEmail && !showEmailTyping)
-    ) && (step !== "confirm" || (!!parsedIntent && !parsedIntent.error)),
+    ),
     currentStep: step === "ask-email" ? "ask-email-confirm" : step,
     ttsPlaying: !!ttsAudioEl,
     commandMap: {
-      confirm: [
-        { keywords: ["approve", "confirm", "proceed", "sige", "go ahead", "let's go", "lets go", "push through", "send it", "okay", "yes"], action: () => handleApprove() },
-        { keywords: ["cancel", "nevermind", "never mind", "huwag", "wag na", "ayaw"], action: () => resetFlow() },
-      ],
       "ask-email-confirm": [
         { keywords: ["yes", "correct", "confirm", "sige", "oo", "tama"], action: () => { setRecipientEmail(voiceEmail.parsedEmail!); setStep("ask-voice-msg"); } },
         { keywords: ["try again", "retry", "no", "hindi", "ulit"], action: () => { voiceEmail.retry(); setRecipientEmail(""); } },
@@ -1356,6 +1443,24 @@ export default function VoiceHome() {
               </div>
             )}
 
+            {/* Condition details */}
+            {parsedIntent.kind === "conditional" && parsedIntent.condition && (() => {
+              const cond = parsedIntent.condition;
+              const token = selectedToken ?? parsedIntent.token ?? "USDC";
+              const name = parsedIntent.recipient?.name ?? "wallet";
+              const hasFiatThreshold = cond.thresholdFiat && cond.thresholdFiatCurrency;
+              const thresholdDisplay = hasFiatThreshold
+                ? `${new Intl.NumberFormat(undefined, { style: "currency", currency: cond.thresholdFiatCurrency }).format(cond.thresholdFiat)} worth of ${token}`
+                : `${cond.walletBelowUsdc.toLocaleString()} ${token}`;
+              const directionWord = cond.direction === "above" ? "exceeds" : "drops below";
+              const actionWord = cond.direction === "above" ? "auto-send" : "auto top-up";
+              return (
+                <div className="rounded-lg bg-white/[0.03] px-4 py-2.5 text-[13px] text-white/45">
+                  When {name}'s wallet {directionWord} {thresholdDisplay} → {actionWord}
+                </div>
+              );
+            })()}
+
             {/* Replay + actions */}
             <div className="flex items-center gap-3 border-t border-white/[0.06] pt-4">
               {session?.readbackText && (
@@ -1382,18 +1487,11 @@ export default function VoiceHome() {
                 </button>
               )}
               <div className={`flex gap-3 ${session?.readbackText ? "" : "ml-auto"}`}>
-                <button onClick={handleApprove} disabled={!ttsHasPlayed} className={`btn-primary px-6${!ttsHasPlayed ? " opacity-40 pointer-events-none" : ""}`}>Approve</button>
-                <button onClick={resetFlow} disabled={!ttsHasPlayed} className={`btn-secondary${!ttsHasPlayed ? " opacity-40 pointer-events-none" : ""}`}>Cancel</button>
+                <button onClick={handleApprove} className="btn-primary px-6">Approve</button>
+                <button onClick={resetFlow} className="btn-secondary">Cancel</button>
               </div>
             </div>
 
-            {/* Voice hint */}
-            <div className="flex items-center justify-center gap-1.5 text-[11px] text-white/25">
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-              </svg>
-              Say "Approve", "Sige", or "Cancel"
-            </div>
           </div>
         )}
 

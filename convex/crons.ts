@@ -21,4 +21,10 @@ crons.interval(
   internal.scheduler.tickConditionalRules,
 );
 
+crons.interval(
+  "syncAgentNonce",
+  { minutes: 2 },
+  internal.nonce.periodicSync,
+);
+
 export default crons;

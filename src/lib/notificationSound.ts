@@ -88,3 +88,70 @@ export function playPaymentReceivedSound() {
     // Silently fail — sound is non-critical
   }
 }
+
+/**
+ * Warm descending two-tone chime for successful outgoing payments.
+ * Mirrors the received sound but descends (G5 → E5) to convey
+ * "money going out" — subtler and shorter than the received chime.
+ */
+export function playPaymentSentSound() {
+  try {
+    const ctx = getContext();
+
+    if (ctx.state === "suspended") {
+      ctx.resume();
+    }
+
+    const now = ctx.currentTime;
+
+    // Master gain — slightly quieter than received
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.25, now);
+    master.connect(ctx.destination);
+
+    // --- Tone 1: higher note (G5 = 784 Hz) ---
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = "sine";
+    osc1.frequency.setValueAtTime(784, now);
+    gain1.gain.setValueAtTime(0, now);
+    gain1.gain.linearRampToValueAtTime(0.5, now + 0.02);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    osc1.connect(gain1);
+    gain1.connect(master);
+    osc1.start(now);
+    osc1.stop(now + 0.4);
+
+    // --- Tone 2: lower note (E5 = 659.25 Hz), slightly delayed ---
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = "sine";
+    osc2.frequency.setValueAtTime(659.25, now + 0.1);
+    gain2.gain.setValueAtTime(0, now);
+    gain2.gain.linearRampToValueAtTime(0.4, now + 0.12);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc2.connect(gain2);
+    gain2.connect(master);
+    osc2.start(now + 0.1);
+    osc2.stop(now + 0.5);
+
+    // --- Soft sub-bass warmth on the second note ---
+    const osc3 = ctx.createOscillator();
+    const gain3 = ctx.createGain();
+    osc3.type = "triangle";
+    osc3.frequency.setValueAtTime(329.63, now + 0.1); // E4 (octave below)
+    gain3.gain.setValueAtTime(0, now);
+    gain3.gain.linearRampToValueAtTime(0.06, now + 0.15);
+    gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    osc3.connect(gain3);
+    gain3.connect(master);
+    osc3.start(now + 0.1);
+    osc3.stop(now + 0.6);
+
+    // Fade master out
+    master.gain.setValueAtTime(0.25, now + 0.45);
+    master.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+  } catch {
+    // Silently fail — sound is non-critical
+  }
+}

@@ -141,6 +141,12 @@ export default defineSchema({
     error: v.optional(v.string()),
   }).index("by_owner", ["ownerId"]),
 
+  nonceCounter: defineTable({
+    walletAddress: v.string(),
+    nextNonce: v.number(),
+    lastSyncedAt: v.number(),
+  }).index("by_wallet", ["walletAddress"]),
+
   voiceSessions: defineTable({
     ownerId: v.id("users"),
     selectedToken: v.optional(v.string()), // token the user tapped in the UI

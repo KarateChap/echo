@@ -6,6 +6,7 @@ import { convertFiatToToken } from "./fiatConversion";
 import { extractDelaySeconds } from "./delayExtractor";
 import { extractTokenFromTranscript } from "./tokenExtractor";
 import { serverNow } from "./serverTime";
+import { sanitizeNumbersForTts } from "./numberSanitizer";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -265,6 +266,7 @@ http.route({
             body: JSON.stringify({
               text,
               model_id: "eleven_flash_v2_5",
+              language_code: "en",
               voice_settings: { stability: 0.4, similarity_boost: 0.9, style: 0.5, use_speaker_boost: true },
               chunk_length_schedule: [120, 160, 250, 290],
             }),
@@ -385,7 +387,7 @@ http.route({
       return new Response(
         JSON.stringify({
           type: "answer",
-          text: "Sorry, may problema ako ngayon. Try mo ulit.",
+          text: "Sorry, something went wrong. Please try again.",
           intent: null,
           chatSessionId: null,
         }),
@@ -832,8 +834,16 @@ Rules:
           const name = parsed.intent.recipient?.name ?? "recipient";
           const amount = (parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?";
           const tok = parsed.intent.token ?? "USDC";
-          parsed.text = `Sige, magpapadala ng ${amount} ${tok} kay ${name}. I-confirm mo lang.`;
+          parsed.text = `Sending ${amount} ${tok} to ${name}. Please confirm.`;
         }
+      }
+
+      // Ensure readback text mentions the correct token from the intent
+      if (parsed.type === "payment_intent" && parsed.intent?.token && parsed.text) {
+        const correctToken = parsed.intent.token;
+        parsed.text = parsed.text.replace(/\b(USDC|USDT|ETH|HTT)\b/g, (match: string) =>
+          match !== correctToken ? correctToken : match
+        );
       }
 
       // Add assistant response
@@ -849,7 +859,7 @@ Rules:
       return new Response(
         JSON.stringify({
           type: parsed.type ?? "answer",
-          text: parsed.text ?? rawContent,
+          text: sanitizeNumbersForTts(parsed.text ?? rawContent),
           intent: parsed.intent ?? null,
           chatSessionId: existingSession?._id ?? null,
           voiceGender: context.voiceGender,
@@ -864,7 +874,7 @@ Rules:
       return new Response(
         JSON.stringify({
           type: "answer",
-          text: "Sorry, may problema ako ngayon. Try mo ulit.",
+          text: "Sorry, something went wrong. Please try again.",
           intent: null,
           chatSessionId: null,
         }),

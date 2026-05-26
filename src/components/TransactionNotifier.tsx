@@ -4,7 +4,7 @@ import { useQuery } from "convex/react";
 import { useNavigate } from "react-router-dom";
 import { ArrowDownLeft } from "lucide-react";
 import { api } from "../../convex/_generated/api";
-import { playPaymentReceivedSound } from "@/lib/notificationSound";
+import { playPaymentReceivedSound, playPaymentSentSound } from "@/lib/notificationSound";
 
 interface Toast {
   id: string;
@@ -154,6 +154,9 @@ export default function TransactionNotifier() {
       if (toast.type === "received") {
         playPaymentReceivedSound();
         if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+      } else if (toast.type === "sent") {
+        playPaymentSentSound();
+        if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
       }
       setTimeout(() => dismissToast(toast.id), toast.type === "received" ? 7000 : 5000);
     }

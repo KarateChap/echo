@@ -5,6 +5,7 @@ import { convertFiatToToken } from "./fiatConversion";
 import { extractDelaySeconds } from "./delayExtractor";
 import { extractTokenFromTranscript } from "./tokenExtractor";
 import { serverDate } from "./serverTime";
+import { parseMonthDay } from "./dateUtils";
 
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -24,7 +25,7 @@ Output ONLY valid JSON matching this schema — no markdown, no explanation:
   "fiatCurrency": string | null,
   "token": "USDC" | "USDT" | "ETH" | "HTT",
   "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once" | "seconds" | "yearly", "value": string } | null,
-  "condition": { "walletBelowUsdc": number, "topUpUsdc": number, "direction": "below" | "above" } | null,
+  "condition": { "walletBelowUsdc": number, "topUpUsdc": number, "direction": "below" | "above", "thresholdFiat": number | null, "thresholdFiatCurrency": string | null } | null,
   "durationMinutes": number | null,
   "totalOccurrences": number | null
 }
@@ -106,12 +107,18 @@ SCHEDULE & KIND RULES
    Examples: "send now", "padala", "transfer", "pay"
 
 2. ONE-SHOT (future date): User specifies a single future date but NOT a recurring pattern.
-   → kind="oneShot", schedule={ kind:"once", value:"YYYY-MM-DD" }
+   → kind="oneShot", schedule={ kind:"once", value:"YYYY-MM-DD" } (date only)
+   → kind="oneShot", schedule={ kind:"once", value:"YYYY-MM-DDTHH:mm" } (if time is mentioned)
    Resolve relative dates using today (${today}):
    - "next Friday" → compute the actual date
    - "on June 15" → "${new Date().getFullYear()}-06-15" (use next year if date has passed)
    - "on Christmas" → "YYYY-12-25"
    - "tomorrow" → compute the actual date
+   If the user mentions a specific time (e.g. "alas 7 ng hapon", "at 3pm", "ng umaga"),
+   append the time as THH:mm in 24-hour format:
+   - "bukas ng alas 7 ng hapon" → "YYYY-MM-DDT19:00"
+   - "on June 15 at 3pm" → "YYYY-06-15T15:00"
+   - "tomorrow morning at 9" → "YYYY-MM-DDT09:00"
 
 2b. ONE-SHOT (delayed): User wants to send ONCE but AFTER a short delay — NOT recurring.
    → kind="oneShot", schedule={ kind:"seconds", value:"<totalSeconds>" }
@@ -183,7 +190,7 @@ SCHEDULE & KIND RULES
    - Calculate totalOccurrences = durationMinutes × 60 ÷ seconds (or from explicit count).
 
 8. CONDITIONAL: User sets a balance threshold to trigger a transfer.
-   → kind="conditional", schedule=null, condition={ walletBelowUsdc:<threshold>, topUpUsdc:<amount>, direction:"below"|"above" }
+   → kind="conditional", schedule=null, condition={ walletBelowUsdc:<threshold>, topUpUsdc:<amount>, direction:"below"|"above", thresholdFiat:<fiat amount>|null, thresholdFiatCurrency:<ISO code>|null }
    - direction="below": fires when recipient's wallet drops BELOW the threshold (auto-top-up).
      "If wallet drops below X, send Y" / "Pag bumaba below X, dagdagan ng Y"
    - direction="above": fires when recipient's wallet goes ABOVE the threshold.
@@ -191,6 +198,14 @@ SCHEDULE & KIND RULES
    - walletBelowUsdc is the threshold value regardless of direction (the name is legacy).
    - IMPORTANT: Detect direction from context — "drops below", "bumaba", "goes under" → "below";
      "exceeds", "tumaas", "goes above", "more than", "higher than", "rises above" → "above".
+
+   FIAT THRESHOLDS: When the user specifies the threshold in a fiat currency (e.g. "500 pesos worth of USDC"),
+   set thresholdFiat to the fiat amount and thresholdFiatCurrency to the ISO currency code.
+   Also set walletBelowUsdc to the SAME fiat number (the system will convert it to token units later).
+   - "Kapag bumaba sa 500 pesos worth of USDC" → thresholdFiat=500, thresholdFiatCurrency="PHP", walletBelowUsdc=500
+   - "If wallet drops below 100 dollars worth of ETH" → thresholdFiat=100, thresholdFiatCurrency="USD", walletBelowUsdc=100
+   - "If wallet drops below 1000 USDC" (direct token amount, no fiat) → thresholdFiat=null, thresholdFiatCurrency=null, walletBelowUsdc=1000
+   The same fiat/token distinction from the AMOUNT RULES applies here: "pesos", "dollars" + token name = fiat mode.
 
 If the instruction is too ambiguous (e.g. "send mama money regularly" without amount), return:
 { "error": "Please specify the amount and how often" }
@@ -217,6 +232,8 @@ FUTURE ONE-SHOT (once):
 - "Send mama 10k on June 15" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-06-15>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
 - "Padala 5000 on Christmas kay papa" → {"kind":"oneShot","recipient":{"name":"Papa","hint":""},"amount":5000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-12-25>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
 - "Send wife 3000 next Friday" → {"kind":"oneShot","recipient":{"name":"Wife","hint":""},"amount":3000,"token":"USDC","schedule":{"kind":"once","value":"<resolved date>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Send 500 kay Miralco bukas ng alas 7 ng hapon" → {"kind":"oneShot","recipient":{"name":"Miralco","hint":""},"amount":500,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-MM-DDT19:00>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
+- "Padala 1000 to mama tomorrow at 9am" → {"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":1000,"token":"USDC","schedule":{"kind":"once","value":"<resolved YYYY-MM-DDT09:00>"},"condition":null,"durationMinutes":null,"totalOccurrences":null}
 
 MONTHLY:
 - "Send mama 10k every 1st of the month for 6 months" → {"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":6}
@@ -259,12 +276,16 @@ SUB-MINUTE (seconds):
 - "Send 1 HTT every 5 seconds to my wife" → {"error":"Please specify how many times or for how long (e.g. 'for 2 minutes' or '10 times')"}
 
 CONDITIONAL (below — auto-top-up):
-- "Pag bumaba na below 2k yung wallet ni ate, dagdagan ng 3k" → {"kind":"conditional","recipient":{"name":"Ate","hint":""},"amount":3000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":2000,"topUpUsdc":3000,"direction":"below"},"durationMinutes":null,"totalOccurrences":null}
-- "If mama's wallet drops below 1000, top up 5000" → {"kind":"conditional","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","schedule":null,"condition":{"walletBelowUsdc":1000,"topUpUsdc":5000,"direction":"below"},"durationMinutes":null,"totalOccurrences":null}
+- "Pag bumaba na below 2k yung wallet ni ate, dagdagan ng 3k" → {"kind":"conditional","recipient":{"name":"Ate","hint":""},"amount":3000,"token":"USDC","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":{"walletBelowUsdc":2000,"topUpUsdc":3000,"direction":"below","thresholdFiat":null,"thresholdFiatCurrency":null},"durationMinutes":null,"totalOccurrences":null}
+- "If mama's wallet drops below 1000, top up 5000" → {"kind":"conditional","recipient":{"name":"Mama","hint":""},"amount":5000,"token":"USDC","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":{"walletBelowUsdc":1000,"topUpUsdc":5000,"direction":"below","thresholdFiat":null,"thresholdFiatCurrency":null},"durationMinutes":null,"totalOccurrences":null}
+
+CONDITIONAL with FIAT (below — fiat threshold & amount):
+- "Kapag bumaba sa 500 pesos worth of USDC ang wallet ni Junjun, magpadala ng 1000 pesos worth of USDC" → {"kind":"conditional","recipient":{"name":"Junjun","hint":""},"amount":null,"token":"USDC","amountFiat":1000,"fiatCurrency":"PHP","schedule":null,"condition":{"walletBelowUsdc":500,"topUpUsdc":1000,"direction":"below","thresholdFiat":500,"thresholdFiatCurrency":"PHP"},"durationMinutes":null,"totalOccurrences":null}
+- "If mama's wallet drops below 100 dollars worth of ETH, send 500 dollars worth of ETH" → {"kind":"conditional","recipient":{"name":"Mama","hint":""},"amount":null,"token":"ETH","amountFiat":500,"fiatCurrency":"USD","schedule":null,"condition":{"walletBelowUsdc":100,"topUpUsdc":500,"direction":"below","thresholdFiat":100,"thresholdFiatCurrency":"USD"},"durationMinutes":null,"totalOccurrences":null}
 
 CONDITIONAL (above — send when balance exceeds):
-- "Kapag tumaas sa 5 USDT ang balance ni wife, sendan mo siya ng 1 USDT" → {"kind":"conditional","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDT","schedule":null,"condition":{"walletBelowUsdc":5,"topUpUsdc":1,"direction":"above"},"durationMinutes":null,"totalOccurrences":null}
-- "If wife's balance exceeds 10, send her 1 USDT" → {"kind":"conditional","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDT","schedule":null,"condition":{"walletBelowUsdc":10,"topUpUsdc":1,"direction":"above"},"durationMinutes":null,"totalOccurrences":null}
+- "Kapag tumaas sa 5 USDT ang balance ni wife, sendan mo siya ng 1 USDT" → {"kind":"conditional","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDT","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":{"walletBelowUsdc":5,"topUpUsdc":1,"direction":"above","thresholdFiat":null,"thresholdFiatCurrency":null},"durationMinutes":null,"totalOccurrences":null}
+- "If wife's balance exceeds 10, send her 1 USDT" → {"kind":"conditional","recipient":{"name":"Wife","hint":""},"amount":1,"token":"USDT","amountFiat":null,"fiatCurrency":null,"schedule":null,"condition":{"walletBelowUsdc":10,"topUpUsdc":1,"direction":"above","thresholdFiat":null,"thresholdFiatCurrency":null},"durationMinutes":null,"totalOccurrences":null}
 
 ERROR CASES:
 - "Send money" (no recipient, no amount) → {"error":"Please specify who to send to and the amount"}
@@ -315,19 +336,17 @@ The user is speaking in: ${langName}.
 READBACK TEXT (REQUIRED)
 ────────────────────────────────
 In addition to the intent fields, you MUST include a "readbackText" field in your JSON output.
-This is a natural, friendly confirmation sentence in ${langName} — the SAME language the user spoke.
+This is a natural, friendly confirmation sentence ALWAYS in English, regardless of the user's language.
 It should summarize the parsed intent: amount, token, recipient, and schedule/condition.
 End with a phrase inviting the user to confirm.
 
-Examples by language:
-- Taglish: "Sige. Magpapadala ng 10,000 USDC kay Mama, every month, tuwing ika-1, 6 beses. I-confirm mo lang para mag-proceed."
-- English: "Got it. Sending 10,000 USDC to Mama, every month on the 1st, 6 times. Please confirm to proceed."
-- Japanese: "了解です。Mamaに10,000 USDCを毎月1日に6回送金します。確認してください。"
-- Cebuano/Bisaya: "Sige. Magpadala og 10,000 USDC kang Mama, kada bulan sa ika-1, 6 ka beses. I-confirm lang para mapadayon."
-- Chinese: "好的。将向Mama发送10,000 USDC，每月1日，共6次。请确认以继续。"
-- Korean: "알겠습니다. Mama에게 매월 1일에 10,000 USDC를 6회 송금합니다. 확인해 주세요."
+Example: "Got it. Sending 10,000 USDC to Mama, every month on the 1st, 6 times. Please confirm to proceed."
 
-Adapt naturally for ${langName}. The readbackText must be in ${langName}, NOT in English (unless the user spoke English).
+The readbackText MUST always be in English. Never use Taglish, Tagalog, Japanese, Korean, Chinese, or any other language.
+CRITICAL: Every number in readbackText MUST be an Arabic digit (0-9). NEVER spell out numbers as words in ANY language.
+Bad: "dalawang beses", "tatlong libo", "ten thousand", "五千", "만"
+Good: "2 times", "3,000", "10,000"
+Even inside Taglish sentences, always use digits: "Magpapadala ng 10,000 USDC kay Mama, 6 times." NOT "anim na beses".
 If there is an error, do NOT include readbackText.`;
 }
 
@@ -411,6 +430,25 @@ export const parseIntent = internalAction({
         }
       }
 
+      // Fiat-to-token conversion for conditional threshold
+      if (!parsed.error && parsed.condition?.thresholdFiat && parsed.condition?.thresholdFiatCurrency) {
+        const thresholdResult = await convertFiatToToken(
+          parsed.condition.thresholdFiat,
+          parsed.condition.thresholdFiatCurrency,
+          parsed.token,
+        );
+        if ("error" in thresholdResult) {
+          parsed.error = thresholdResult.error;
+        } else {
+          parsed.condition.walletBelowUsdc = thresholdResult.amount;
+          parsed.condition.thresholdConversionRate = thresholdResult.conversionRate;
+        }
+        // Also sync topUpUsdc with the converted main amount (if fiat mode)
+        if (parsed.amount && parsed.condition.topUpUsdc) {
+          parsed.condition.topUpUsdc = parsed.amount;
+        }
+      }
+
       // If the model returned an error, pass it through
       if (!parsed.error) {
         const validKinds = ["recurring", "conditional", "oneShot"];
@@ -460,6 +498,14 @@ export const parseIntent = internalAction({
             if (min === "0" && hour === "*") {
               parsed.schedule.value = "*/1 * * * *";
             }
+          }
+        }
+
+        // Post-process: normalize yearly schedule.value to MM-DD format
+        if (parsed.schedule?.kind === "yearly") {
+          const pd = parseMonthDay(parsed.schedule.value);
+          if (pd) {
+            parsed.schedule.value = `${String(pd.month).padStart(2, "0")}-${String(pd.day).padStart(2, "0")}`;
           }
         }
 

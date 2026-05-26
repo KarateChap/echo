@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { convertFiatToToken } from "./fiatConversion";
 import { extractDelaySeconds } from "./delayExtractor";
+import { sanitizeNumbersForTts } from "./numberSanitizer";
 import { extractTokenFromTranscript } from "./tokenExtractor";
 import { serverNow, serverDate } from "./serverTime";
 
@@ -217,15 +218,9 @@ export function buildChatSystemPrompt(context: {
   return `You are Echo, a friendly voice assistant for the Echo remittance app. You help users manage their crypto remittances.
 Today is ${today}.
 
-LANGUAGE: Always respond in the SAME language the user is speaking. Mirror their language exactly:
-- If they speak Taglish (mixed Tagalog/English), reply in Taglish.
-- If they speak English, reply in English.
-- If they speak Japanese, reply in Japanese.
-- If they speak Korean, reply in Korean.
-- If they speak Chinese, reply in Chinese.
-- If they speak Spanish, reply in Spanish.
-- If they speak any other language, reply in that same language.
-Detect the language from each message and match it. Do NOT default to English or Taglish.
+LANGUAGE: Always respond in English regardless of what language the user speaks.
+You MUST understand all languages (Taglish, Tagalog, Japanese, Korean, Chinese, Spanish, Cebuano, etc.) but your responses must ALWAYS be in English.
+Never reply in Taglish, Tagalog, or any non-English language.
 
 Be warm, concise, and helpful.
 Keep responses SHORT (1-3 sentences) since they will be read aloud via TTS.
@@ -263,7 +258,7 @@ TYPE 1 — "answer" (questions, greetings, info requests):
 TYPE 2 — "payment_intent" (ANY message that describes sending/transferring money):
 {
   "type": "payment_intent",
-  "text": "A short, natural, conversational confirmation sentence in the user's language. This text will be spoken aloud via TTS, so it MUST sound like a human speaking — e.g. 'Sige, magpapadala ng 1 USDT kay Junjun.' NEVER include JSON keys, field names, technical terms like 'intent', 'type', 'kind', 'oneShot', 'amountFiat', 'fiatCurrency', 'schedule', 'condition', 'recipient', 'hint', or any code-like syntax. Just a friendly spoken confirmation.",
+  "text": "A short, natural, conversational confirmation sentence ALWAYS in English. This text will be spoken aloud via TTS, so it MUST sound like a human speaking — e.g. 'Sending 1 USDT to Junjun.' NEVER include JSON keys, field names, technical terms like 'intent', 'type', 'kind', 'oneShot', 'amountFiat', 'fiatCurrency', 'schedule', 'condition', 'recipient', 'hint', or any code-like syntax. Just a friendly spoken confirmation in English.",
   "intent": {
     "kind": "recurring" | "conditional" | "oneShot",
     "recipient": { "name": string, "hint": string },
@@ -272,14 +267,14 @@ TYPE 2 — "payment_intent" (ANY message that describes sending/transferring mon
     "fiatCurrency": string | null,
     "token": "USDC" | "USDT" | "ETH" | "HTT",
     "schedule": { "kind": "monthly" | "weekly" | "daily" | "biweekly" | "cron" | "once" | "seconds" | "yearly", "value": string } | null,
-    "condition": { "walletBelowUsdc": number, "topUpUsdc": number, "direction": "below" | "above" } | null,
+    "condition": { "walletBelowUsdc": number, "topUpUsdc": number, "direction": "below" | "above", "thresholdFiat": number | null, "thresholdFiatCurrency": string | null } | null,
     "durationMinutes": number | null,
     "totalOccurrences": number | null
   }
 }
 
 TYPE 3 — "withdraw" (user wants to withdraw, cash out, or off-ramp to fiat):
-{ "type": "withdraw", "text": "Sige, bubuksan ko ang cash out." }
+{ "type": "withdraw", "text": "Opening the cash out flow for you." }
 
 TYPE 4 — "exit" (user wants to leave chat):
 { "type": "exit", "text": "goodbye message" }
@@ -302,10 +297,10 @@ Return "withdraw" when the user wants to withdraw, cash out, or convert crypto t
 withdraw, cash out, cashout, i-withdraw, mag-withdraw, mag-cash out, off-ramp, claim, payout, encash, palitan, convert to cash, convert to pesos, palit, ilabas, kunin ang pera
 
 Examples:
-User: "withdraw" → {"type":"withdraw","text":"Sige, bubuksan ko ang cash out."}
+User: "withdraw" → {"type":"withdraw","text":"Opening the cash out flow for you."}
 User: "I want to cash out" → {"type":"withdraw","text":"Opening the cash out flow for you."}
-User: "gusto ko mag-withdraw" → {"type":"withdraw","text":"Sige, bubuksan ko ang withdrawal."}
-User: "withdraw for cash out" → {"type":"withdraw","text":"Sige, bubuksan ko ang cash out."}
+User: "gusto ko mag-withdraw" → {"type":"withdraw","text":"Opening the cash out flow for you."}
+User: "引き出したい" → {"type":"withdraw","text":"Opening the cash out flow for you."}
 
 ────────────────────────────────
 EXAMPLES
@@ -320,10 +315,13 @@ User: "send 5 USDC to Mama in 2 minutes"
 → {"type":"payment_intent","text":"Sending 5 USDC to Mama in 2 minutes.","intent":{"kind":"oneShot","recipient":{"name":"Mama","hint":""},"amount":5,"amountFiat":null,"fiatCurrency":null,"token":"USDC","schedule":{"kind":"seconds","value":"120"},"condition":null,"durationMinutes":null,"totalOccurrences":null}}
 
 User: "padala 10k kay mama every month, 6 times"
-→ {"type":"payment_intent","text":"Magpapadala ng 10,000 USDC kay Mama, monthly, 6 beses.","intent":{"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"amountFiat":null,"fiatCurrency":null,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":6}}
+→ {"type":"payment_intent","text":"Sending 10,000 USDC to Mama, monthly, 6 times.","intent":{"kind":"recurring","recipient":{"name":"Mama","hint":""},"amount":10000,"amountFiat":null,"fiatCurrency":null,"token":"USDC","schedule":{"kind":"monthly","value":"1"},"condition":null,"durationMinutes":null,"totalOccurrences":6}}
 
 User: "send 0.1 USDT to junjun every 30 seconds within 1 minute"
 → {"type":"payment_intent","text":"Sending 0.1 USDT to Junjun every 30 seconds for 1 minute.","intent":{"kind":"recurring","recipient":{"name":"Junjun","hint":""},"amount":0.1,"amountFiat":null,"fiatCurrency":null,"token":"USDT","schedule":{"kind":"seconds","value":"30"},"condition":null,"durationMinutes":1,"totalOccurrences":2}}
+
+User: "1 USDTをJunjunに送って"
+→ {"type":"payment_intent","text":"Sending 1 USDT to Junjun.","intent":{"kind":"oneShot","recipient":{"name":"Junjun","hint":""},"amount":1,"amountFiat":null,"fiatCurrency":null,"token":"USDT","schedule":null,"condition":null,"durationMinutes":null,"totalOccurrences":null}}
 
 User: "what's my balance?"
 → {"type":"answer","text":"You have 0.5 ETH and 1,000 USDC."}
@@ -335,7 +333,7 @@ User: "how much is 1 USDT right now?"
 → {"type":"answer","text":"1 USDT is currently worth about $1.00 or ₱56.18."}
 
 User: "magkano ang presyo ng isang usdt ngayon?"
-→ {"type":"answer","text":"Ang 1 USDT ngayon ay nasa ₱56.18 o $1.00."}
+→ {"type":"answer","text":"1 USDT is currently worth about $1.00 or ₱56.18."}
 
 ────────────────────────────────
 SCHEDULE RULES for payment_intent
@@ -354,12 +352,48 @@ SCHEDULE RULES for payment_intent
   NEVER set totalOccurrences to null for recurring rules.
 - durationMinutes: set when user specifies duration (e.g. "within 1 minute" → 1)
 
+────────────────────────────────
+CONDITIONAL RULES for payment_intent
+────────────────────────────────
+- kind="conditional" is for balance-threshold triggers: "if wallet drops below X, send Y" / "kapag bumaba sa X, magpadala ng Y"
+- Conditionals are ONE-TIME: they fire once when the condition is met. totalOccurrences should be null.
+- Set condition.direction to "below" (auto-top-up) or "above" (send when exceeds).
+- condition.walletBelowUsdc = the threshold amount, condition.topUpUsdc = the amount to send.
+- FIAT THRESHOLDS: If the user says the threshold in fiat (e.g., "500 pesos worth of USDC"), set:
+  condition.thresholdFiat = fiat amount, condition.thresholdFiatCurrency = ISO code (e.g., "PHP"),
+  and set walletBelowUsdc to the same fiat number (the system converts it later).
+- IMPORTANT: Do NOT classify conditional intents as "recurring". Conditional triggers are NOT recurring.
+  Keywords: "kapag", "if", "when", "pag", "bumaba", "drops below", "exceeds", "tumaas", "goes above" → kind="conditional"
+
+Examples:
+- "kapag bumaba sa 500 pesos worth ang wallet ni junjun, magpadala ng 1000 pesos worth of USDC"
+  → kind:"conditional", condition:{walletBelowUsdc:500, topUpUsdc:1000, direction:"below", thresholdFiat:500, thresholdFiatCurrency:"PHP"}, amountFiat:1000, fiatCurrency:"PHP"
+- "if mama's wallet drops below 1000 USDC, top up 5000"
+  → kind:"conditional", condition:{walletBelowUsdc:1000, topUpUsdc:5000, direction:"below", thresholdFiat:null, thresholdFiatCurrency:null}, amount:5000
+
+────────────────────────────────
+AMOUNT RULES (TOKEN vs FIAT)
+────────────────────────────────
+There are TWO modes for specifying amounts:
+
+**MODE 1 — Token amount (direct):** "send 100 USDC", "send 0.5 ETH"
+→ Set "amount" to the value. Set "amountFiat" and "fiatCurrency" to null.
+
+**MODE 2 — Fiat amount (conversion needed):** "send 500 pesos worth of USDC", "20 dollars worth of ETH"
+→ Set "amountFiat" to the fiat value. Set "fiatCurrency" to the ISO code (PHP, USD, etc.). Set "amount" to null.
+→ Trigger phrases: "X pesos worth of", "X dollars worth of", "php X worth", "halaga ng", "katumbas ng"
+→ "pesos"/"piso"/"peso"/"php" → "PHP"; "dollars"/"dollar"/"usd" → "USD"
+
 OTHER RULES:
 - When the user asks about balances, rules, transactions, or recipients → "answer" type using account data above.
 - "cancel", "exit", "nevermind", "go back" (any language) → "exit" type.
 - Default token to USDC if not specified. Default recipient hint to "".
 - Keep "text" concise (1-2 sentences) for TTS.
-- ALWAYS respond in the same language the user is speaking.`;
+- ALWAYS respond in English regardless of what language the user speaks.
+- CRITICAL: Every number in "text" MUST be an Arabic digit (0-9). NEVER spell out numbers as words in ANY language.
+  Bad: "dalawang beses", "tatlong libo", "ten thousand", "five", "anim", "isang", "五千"
+  Good: "2 times", "3,000", "10,000", "5", "6", "1"
+  Even when parsing Taglish input, always use digits in the English response: "Sending 10,000 USDC, 6 times." NOT "anim na beses".`;
 }
 
 // ── Main chat action ─────────────────────────────────────────────────────────
@@ -481,7 +515,7 @@ export const chat = action({
     if (parsed.type !== "withdraw" && parsed.type !== "payment_intent") {
       const lowerMsgW = message.toLowerCase();
       if (/\b(withdraw|cash\s*out|cashout|i-withdraw|mag-withdraw|mag-cash\s*out|off-?ramp|encash|ilabas)\b/i.test(lowerMsgW)) {
-        parsed = { type: "withdraw", text: parsed.text || "Sige, bubuksan ko ang cash out." };
+        parsed = { type: "withdraw", text: parsed.text || "Opening the cash out flow for you." };
       }
     }
 
@@ -587,6 +621,20 @@ Rules:
       }
     }
 
+    // Fiat-to-token conversion for conditional threshold
+    if (parsed.type === "payment_intent" && parsed.intent?.condition?.thresholdFiat && parsed.intent?.condition?.thresholdFiatCurrency) {
+      const token = parsed.intent.token ?? "USDC";
+      const thresholdResult = await convertFiatToToken(parsed.intent.condition.thresholdFiat, parsed.intent.condition.thresholdFiatCurrency, token);
+      if (!("error" in thresholdResult)) {
+        parsed.intent.condition.walletBelowUsdc = thresholdResult.amount;
+        parsed.intent.condition.thresholdConversionRate = thresholdResult.conversionRate;
+      }
+      // Sync topUpUsdc with the converted main amount
+      if (parsed.intent.amount && parsed.intent.condition.topUpUsdc) {
+        parsed.intent.condition.topUpUsdc = parsed.intent.amount;
+      }
+    }
+
     // Sanitize payment_intent text — if GPT included JSON-like terms, replace with a clean readback
     if (parsed.type === "payment_intent" && parsed.intent) {
       const jsonTerms = /\b(intent|oneShot|amountFiat|fiatCurrency|totalOccurrences|durationMinutes|"kind"|"type"|"hint"|"schedule"|"condition")\b/i;
@@ -594,7 +642,7 @@ Rules:
         const name = parsed.intent.recipient?.name ?? "recipient";
         const amount = (parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?";
         const tok = parsed.intent.token ?? "USDC";
-        parsed.text = `Sige, magpapadala ng ${amount} ${tok} kay ${name}. I-confirm mo lang.`;
+        parsed.text = `Sending ${amount} ${tok} to ${name}. Please confirm.`;
       }
     }
 
@@ -609,9 +657,18 @@ Rules:
       // If text is now empty, provide a fallback
       if (!parsed.text) {
         parsed.text = parsed.type === "payment_intent" && parsed.intent
-          ? `Sige, magpapadala ng ${(parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?"} ${parsed.intent.token ?? "USDC"} kay ${parsed.intent.recipient?.name ?? "recipient"}. I-confirm mo lang.`
+          ? `Sending ${(parsed.intent.amount ?? parsed.intent.amountUsdc)?.toLocaleString() ?? "?"} ${parsed.intent.token ?? "USDC"} to ${parsed.intent.recipient?.name ?? "recipient"}. Please confirm.`
           : "Okay, noted.";
       }
+    }
+
+    // Post-process: ensure readback text mentions the correct token from the intent
+    if (parsed.type === "payment_intent" && parsed.intent?.token && parsed.text) {
+      const correctToken = parsed.intent.token;
+      // Replace any wrong token name in the spoken text with the correct one
+      parsed.text = parsed.text.replace(/\b(USDC|USDT|ETH|HTT)\b/g, (match: string) =>
+        match !== correctToken ? correctToken : match
+      );
     }
 
     // Require totalOccurrences for recurring payment intents — ask for clarification if missing
@@ -639,7 +696,7 @@ Rules:
 
     return {
       type: parsed.type ?? "answer",
-      text: parsed.text ?? rawContent,
+      text: sanitizeNumbersForTts(parsed.text ?? rawContent),
       intent: parsed.intent ?? null,
       chatSessionId,
       voiceGender: context.voiceGender,

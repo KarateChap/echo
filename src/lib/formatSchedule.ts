@@ -45,15 +45,26 @@ function formatScheduleBase(schedule: { kind: string; value: string }, ruleKind?
     return n === 1 ? "Every second" : `Every ${n} seconds`;
   }
   if (schedule.kind === "yearly") {
-    const [month, day] = schedule.value.split("-").map(Number);
-    const date = new Date(2000, month - 1, day);
+    const pd = parseMonthDay(schedule.value);
+    if (!pd) return `Yearly on ${schedule.value}`;
+    const date = new Date(2000, pd.month - 1, pd.day);
     const monthName = date.toLocaleDateString("en-US", { month: "long" });
-    return `Yearly on ${monthName} ${day}${ordinalSuffix(String(day))}`;
+    return `Yearly on ${monthName} ${pd.day}${ordinalSuffix(String(pd.day))}`;
   }
   if (schedule.kind === "once") {
-    const d = new Date(schedule.value + "T00:00:00");
+    const hasTime = schedule.value.includes("T");
+    const d = new Date(hasTime ? schedule.value : schedule.value + "T00:00:00");
     if (!isNaN(d.getTime())) {
-      return `On ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
+      const datePart = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      if (hasTime) {
+        const h = d.getHours();
+        const m = d.getMinutes();
+        const ampm = h >= 12 ? "PM" : "AM";
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        const mStr = String(m).padStart(2, "0");
+        return `On ${datePart} at ${h12}:${mStr} ${ampm}`;
+      }
+      return `On ${datePart}`;
     }
     return `On ${schedule.value}`;
   }
@@ -99,6 +110,33 @@ function formatScheduleBase(schedule: { kind: string; value: string }, ruleKind?
     return pieces.join(" ");
   }
   return `Custom (${schedule.value})`;
+}
+
+const MONTH_NAMES: Record<string, number> = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3,
+  april: 4, apr: 4, may: 5, june: 6, jun: 6, july: 7, jul: 7,
+  august: 8, aug: 8, september: 9, sep: 9, october: 10, oct: 10,
+  november: 11, nov: 11, december: 12, dec: 12,
+};
+
+function parseMonthDay(value: string): { month: number; day: number } | null {
+  if (!value) return null;
+  const parts = value.split("-");
+  if (parts.length === 2) {
+    const m = parseInt(parts[0], 10);
+    const d = parseInt(parts[1], 10);
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) return { month: m, day: d };
+    const mName = MONTH_NAMES[parts[0].toLowerCase()];
+    const d2 = parseInt(parts[1], 10);
+    if (mName && d2 >= 1 && d2 <= 31) return { month: mName, day: d2 };
+  }
+  const spaceMatch = value.trim().match(/^([a-zA-Z]+)\s+(\d{1,2})$/);
+  if (spaceMatch) {
+    const m = MONTH_NAMES[spaceMatch[1].toLowerCase()];
+    const d = parseInt(spaceMatch[2], 10);
+    if (m && d >= 1 && d <= 31) return { month: m, day: d };
+  }
+  return null;
 }
 
 function ordinalSuffix(val: string): string {

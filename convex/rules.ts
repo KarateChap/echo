@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { CronExpressionParser } from "cron-parser";
 import { serverNow, serverDate } from "./serverTime";
+import { parseMonthDay } from "./dateUtils";
 
 function nextCronRunAt(cronExpr: string): number {
   const interval = CronExpressionParser.parse(cronExpr, { currentDate: serverDate() });
@@ -89,9 +90,11 @@ function nextScheduleRunAt(schedule: { kind: string; value: string }): number {
     return serverNow() + parseInt(schedule.value) * 1000;
   }
 
-  // Handle yearly — value is "MM-DD"
+  // Handle yearly — value is "MM-DD" (or month name variants)
   if (schedule.kind === "yearly") {
-    const [month, day] = schedule.value.split("-").map(Number);
+    const pd = parseMonthDay(schedule.value);
+    if (!pd) return serverNow() + 365 * 24 * 60 * 60 * 1000; // fallback: 1 year
+    const { month, day } = pd;
     const next = new Date(now.getFullYear(), month - 1, day, 9, 0, 0, 0);
     if (next.getTime() <= now.getTime()) {
       next.setFullYear(next.getFullYear() + 1);

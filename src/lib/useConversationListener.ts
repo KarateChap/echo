@@ -108,6 +108,12 @@ export function useConversationListener({
   // Keep refs in sync without restarting recognition
   currentStepRef.current = currentStep;
   commandMapRef.current = commandMap;
+  // Synchronously reset startup delay when TTS transitions playing → stopped,
+  // preventing race where speech results arrive between ref update and useEffect
+  if (ttsPlayingRef.current && !ttsPlaying) {
+    pendingTranscriptsRef.current = [];
+    enabledAtRef.current = Date.now();
+  }
   ttsPlayingRef.current = ttsPlaying;
   onUnmatchedRef.current = onUnmatched;
 

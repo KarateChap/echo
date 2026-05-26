@@ -84,15 +84,17 @@ export function useConversationAgent({
     [convexSiteUrl, voiceGender, onTtsEnd, playStream],
   );
 
+  // Returns true if the caller should transition to "chat-speaking" (i.e. TTS will play),
+  // false if the response was handled elsewhere (payment_intent, withdraw, exit).
   const sendMessage = useCallback(
-    async (transcript: string, balanceSummary?: string) => {
-      if (!transcript.trim() || !convexSiteUrl || !privyId) return;
+    async (transcript: string, balanceSummary?: string): Promise<boolean> => {
+      if (!transcript.trim() || !convexSiteUrl || !privyId) return false;
 
       // Client-side shortcut: detect withdraw/cash-out keywords instantly
       const lower = transcript.trim().toLowerCase();
       if (/\b(withdraw|cash\s*out|cashout|mag-?withdraw|i-?withdraw|encash|ilabas)\b/.test(lower)) {
         onWithdraw();
-        return;
+        return false;
       }
 
       const userMsg: ChatMessage = { role: "user", text: transcript.trim() };
@@ -116,12 +118,12 @@ export function useConversationAgent({
 
         if (data.type === "payment_intent" && data.intent) {
           onPaymentIntent(data.intent, data.intent.token, data.text);
-          return;
+          return false;
         }
 
         if (data.type === "withdraw") {
           onWithdraw();
-          return;
+          return false;
         }
 
         const assistantMsg: ChatMessage = { role: "assistant", text: data.text };
@@ -131,15 +133,17 @@ export function useConversationAgent({
         if (data.type === "exit") {
           await playTts(data.text);
           onExit();
-          return;
+          return false;
         }
 
         // Regular answer — play streaming TTS
         await playTts(data.text);
+        return true;
       } catch {
         setIsProcessing(false);
-        setLastResponse("Sorry, may error. Try mo ulit.");
-        await playTts("Sorry, may error. Try mo ulit.");
+        setLastResponse("Sorry, something went wrong. Please try again.");
+        await playTts("Sorry, something went wrong. Please try again.");
+        return true;
       }
     },
     [convexSiteUrl, privyId, playTts, onPaymentIntent, onWithdraw, onExit],
