@@ -1,0 +1,9 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.27"
+evm_version = "cancun"
+
+[rpc_endpoints]
+morph_hoodi = "${MORPH_HOODI_RPC_URL}"
